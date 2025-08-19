@@ -1,0 +1,42 @@
+# Environnements
+.venv/
+env/
+venv/
+
+# Fichiers Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# Notebooks
+.ipynb_checkpoints/
+
+# Données locales
+data/raw/
+data/processed/
+
+# Logs
+logs/
+*.log
+
+# Config sensibles
+*.yaml
+*.json
+!configs/strategy.yaml   # garder les configs de stratégie si tu veux
+
+# Cache
+.cache/
+*.tmp
+
+# Résultats
+*.csv
+*.xlsx
+*.h5
+*.pkl
+*.db
+
+# OS / IDE
+.DS_Store
+.vscode/
+.idea/
