@@ -8,16 +8,29 @@ import warnings
 warnings.filterwarnings('ignore')
 
 # Liste des paires forex fortement corrélées
-forex_pairs_correlated = [
-    ("AUDJPY=X", "NZDJPY=X"),
-    ("AUDUSD=X", "NZDUSD=X"),
-    ("GBPJPY=X", "EURJPY=X"),
-    ("GBPUSD=X", "EURUSD=X"),
-    ("USDCHF=X", "USDJPY=X"),
-    ("EURUSD=X", "GBPUSD=X")
+assets_correlated = [
+    # Actions US fortement corrélées
+    ("AAPL", "MSFT"),
+    ("GOOGL", "META"),
+    ("AMZN", "TSLA"),
+    
+    # Forex corrélés
+    ("EURUSD=X", "GBPUSD=X"),
+    ("USDJPY=X", "USDCAD=X"),
+    ("AUDUSD=X", "EURUSD=X"),
+    
+    # ETF corrélés
+    ("SPY", "QQQ"),
+    ("DIA", "SPY"),
+    ("GLD", "SLV"),
+    
+    # Cryptomonnaies corrélées
+    ("BTC-USD", "ETH-USD"),
+    ("BTC-USD", "BNB-USD"),
+    ("ETH-USD", "BNB-USD")
 ]
 
-def data_loader(ticker_1, ticker_2, duration, interval="1d"):
+def data_loader(ticker_1, ticker_2, duration, interval="60m"):
     """
     Télécharge les données pour deux tickers avec gestion d'erreurs améliorée
     """
@@ -329,11 +342,7 @@ def scan_all_pairs(duration="1y", min_quality_score=6):
     
     return opportunities
 
+
 if __name__ == "__main__":
-    # Analyse d'une paire spécifique
-    result = pairs_trading_analysis("EURUSD=X", "GBPUSD=X", duration="10y", plot=True)
-    result = pairs_trading_analysis("USDCHF=X", "USDJPY=X", duration="10y", plot=True)
-    
-    
-    # Scan complet
-    # opportunities = scan_all_pairs(duration="1y", min_quality_score=5)
+    scan_all_pairs(duration="1y", min_quality_score=6)
+
