@@ -117,6 +117,13 @@ data = data.groupby(level=1, group_keys=False).apply(calculate_returns).dropna()
 print("Colonnes après calculate_returns:", data.columns.tolist())
 print("Data shape après calculate_returns:", data.shape)
 
+# Vérifier que return_1m existe bien
+if 'return_1m' not in data.columns:
+    print("ERREUR: return_1m n'a pas été créé correctement!")
+    print("Colonnes disponibles:", data.columns.tolist())
+    # Créer return_1m manuellement si nécessaire
+    data['return_1m'] = data.groupby(level=0)['adj close'].pct_change(1)
+
 # Download Fama-French 5-factor data and prepare for regression
 factor_data = web.DataReader('F-F_Research_Data_5_Factors_2x3',
                                'famafrench',
