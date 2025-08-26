@@ -6,6 +6,8 @@ from sklearn.metrics import r2_score
 import matplotlib.pyplot as plt
 from scipy.optimize import brute
 
+
+
 #params 
 PERIOD = "15y"
 INTERVAL = "1mo"
@@ -24,6 +26,7 @@ def load_data(ticker):
 #create target feature
 def add_label(df):
     df['TARGET'] = df['Close'].diff(SHIFT)
+    df['TARGET'] = np.where(df['TARGET'] > 0, 1, 0)
     return df
 
 #create sma features
