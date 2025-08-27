@@ -5,6 +5,7 @@ from sklearn.linear_model import LinearRegression
 from sklearn.metrics import r2_score
 import matplotlib.pyplot as plt
 from scipy.optimize import brute
+from sklearn.feature_selection import f_classif, mutual_info_classif
 
 
 
@@ -18,6 +19,17 @@ SHORT_WINDOW = 2
 
 SHIFT = 5
 
+N_CLASSES = 5
+
+def adaptive_multiclass_labeling(returns, n_classes=5):
+    percentiles = np.linspace(0, 100, n_classes + 1)
+    thresholds = np.percentile(returns.dropna(), percentiles)
+    labels = np.zeros(len(returns))
+    for i in range(n_classes):
+        mask = (returns >= thresholds[i]) & (returns < thresholds[i+1])
+        labels[mask] = i
+    return labels
+
 #load data 
 def load_data(ticker):
     data = yf.download(tickers=ticker, period=PERIOD, interval=INTERVAL)
@@ -25,8 +37,8 @@ def load_data(ticker):
 
 #create target feature
 def add_label(df):
-    df['TARGET'] = df['Close'].diff(SHIFT)
-    df['TARGET'] = np.where(df['TARGET'] > 0, 1, 0)
+    df['RETURNS'] = df['Close'].pct_change()
+    df['TARGET'] = adaptive_multiclass_labeling(df['RETURNS'], n_classes=N_CLASSES)
     return df
 
 #create sma features
@@ -51,70 +63,67 @@ def add_volatility(df):
     return df
 
 
-def objective(params, df, target_col):
-    short_w, long_w = int(params[0]), int(params[1])
-    if short_w >= long_w:
-        return 1  # pénalisation pour fenêtres incohérentes
-    
-    df[f"SMA_{short_w}"] = df['Close'].rolling(window=short_w).mean()
-    df[f"SMA_{long_w}"] = df['Close'].rolling(window=long_w).mean()
-    df['SIGNAL'] = np.where(
-        df[f'SMA{LONG_WINDOW}'] > df[f'SMA{SHORT_WINDOW}'], 1,
-        np.where(df[f'SMA{LONG_WINDOW}'] < df[f'SMA{SHORT_WINDOW}'], -1, 0)
-    )
-    
-    subset = df[[target_col, 'SIGNAL']].dropna()
-    if len(subset) == 0:
-        return 1
-    
-    corr = subset[target_col].corr(subset['SIGNAL'])
-    return -abs(corr)   # brute cherche à minimiser, on inverse le signe
-    
-#optimize the couple of sma
-def optimize_sma(df, target_col, short_range, long_range):
-    rranges = (slice(short_range.start, short_range.stop, 1),
-               slice(long_range.start, long_range.stop, 1))
-    res = brute(objective, rranges, args=(df, target_col), finish=None)
-    best_short, best_long = int(res[0]), int(res[1])
-    print(f"Best pair: ({best_short},{best_long})")
-    return best_short, best_long
-
 #testing the corr between feature and target with linear regression
-def linear_regression(df,x,y):
+# def linear_regression(df,x,y):
     subset  = df[[x,y]].dropna()
 
-    X = subset[[x]].values
-    y = subset[y].values
+#     X = subset[[x]].values
+#     y = subset[y].values
 
-    model = LinearRegression()
-    model.fit(X,y)
+#     model = LinearRegression()
+#     model.fit(X,y)
 
-    y_pred = model.predict(X)
-    r2 = r2_score(y,y_pred)
-    coefficients = model.coef_
-    intercept = model.intercept_
-    print(f"R2: {r2}")
+#     y_pred = model.predict(X)
+#     r2 = r2_score(y,y_pred)
+#     coefficients = model.coef_
+#     intercept = model.intercept_
+#     print(f"R2: {r2}")
     
-    print(f"Coefficients: {coefficients}")
-    print(f"Intercept: {intercept}")
+#     print(f"Coefficients: {coefficients}")
+#     print(f"Intercept: {intercept}")
 
-    plt.figure()
-    plt.title(f"Linear Regression {x} vs Target")
-    plt.scatter(X,y)
+#     plt.figure()
+#     plt.title(f"Linear Regression {x} vs Target")
+#     plt.scatter(X,y)
     plt.show()
     return r2, coefficients, intercept 
 
+def compute_correlations(df):
+    X = df.drop(columns=["TARGET"]).select_dtypes(include=[np.number]).dropna()
+    y = df.loc[X.index, "TARGET"]
+
+    # Spearman correlation
+    spearman_corr = X.corrwith(y, method="spearman").sort_values(ascending=False)
+    print("=== Spearman Correlation with TARGET ===")
+    print(spearman_corr)
+
+    # ANOVA F-test
+    f_vals, p_vals = f_classif(X, y)
+    anova_df = pd.DataFrame({
+        "Feature": X.columns,
+        "F_val": f_vals,
+        "p_val": p_vals
+    }).sort_values("F_val", ascending=False)
+    print("\n=== ANOVA F-test ===")
+    print(anova_df)
+
+    # Mutual Information
+    mi = mutual_info_classif(X, y, discrete_features=False)
+    mi_df = pd.DataFrame({
+        "Feature": X.columns,
+        "Mutual_Info": mi
+    }).sort_values("Mutual_Info", ascending=False)
+    print("\n=== Mutual Information ===")
+    print(mi_df)
+
 #main function for execute all the code
 def main():
-    df = load_data("AAPL")
+    df = load_data("EURUSD=X")
     df = add_label(df)
-    list_of_features = ['RETURN_LAG_1','RETURN_LAG_2','RETURN_LAG_3','RETURN_LAG_4','RETURN_LAG_5','SMA2','SMA51','VOLATILITY']
     df = add_SMA_crossing(df)
     df = add_return_lag(df)
     df = add_volatility(df)
-    optimize_sma(df,'TARGET',range(2,50),range(51,201))
-    for el in list_of_features:
-        linear_regression(df,el,'TARGET')
+    compute_correlations(df)
     return  
 
 df = main()
