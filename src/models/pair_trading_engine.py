@@ -8,7 +8,7 @@ import warnings
 warnings.filterwarnings('ignore')
 
 # Liste des paires forex fortement corrélées
-assets_correlated = [
+forex_pairs_correlated = [
     # Actions US fortement corrélées
     ("AAPL", "MSFT"),
     ("GOOGL", "META"),
@@ -339,6 +339,7 @@ def scan_all_pairs(duration="1y", min_quality_score=6):
         print(f"   Score: {opp['quality_score']}/10 | Z-score: {opp['current_zscore']:.2f} | Signal: {signal_type}")
         print(f"   R²: {opp['r_squared']:.3f} | Demi-vie: {opp['half_life']:.1f}j")
         print()
+        opportunities.to_csv('opportunities.csv', index=False)
     
     return opportunities
 
