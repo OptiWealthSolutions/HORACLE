@@ -5,9 +5,10 @@ class LabellingEngineer:
     def __init__(self):
         self.df = None
         pass
-    def labelling_simple (self, df: pd.DataFrame) -> pd.DataFrame:
+
+    def labelling_simple (self, df: pd.DataFrame,Shift : int) -> pd.DataFrame:
         self.df = df
-        self.df['Target'] = self.df['Close'].shift(-SHIFT)
+        self.df['Target'] = self.df['Close'].shift(-Shift)
         return self.df
 
     def meta_labelling(self):
@@ -59,7 +60,7 @@ class Labbelling_engineer_model_fitting():
     def rand_forest_quantil_labelling_method(df, quantil = List[float]):
         returns = df['Close'].pct_change()
 
-        df['TARGET'] = np.qcut(future_return, q=5, labels=range(5)) #0,1,2,3,4 = labels'names
+        df['TARGET'] = np.qcut(returns, q=quantil, labels=range(5)) #0,1,2,3,4 = labels'names
         return
 
 

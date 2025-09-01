@@ -16,12 +16,11 @@ SHIFT = 5
 
 def load_data(ticker):
     data = yf.download(tickers=ticker, period=PERIOD, interval=INTERVAL)
-    data['Price_z_score'] = (data['Close'] - data['Close'].mean()) / data['Close'].std()
+    data['Returns'] = data['Close'].pct_change().shift(1)
     return data
 
 def labelling(df):  
-    df[f'Price_z_score+{SHIFT}'] = df['Price_z_score'].shift(-SHIFT)
-    df['TARGET'] = df[f'Price_z_score+{SHIFT}'] - df['Price_z_score']
+    df['TARGET'] = df[f'Returns'] - df['Returns'].shift(-1)
     return df
 
 def add_return_lag(df):
