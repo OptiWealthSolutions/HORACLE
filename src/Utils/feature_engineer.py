@@ -41,7 +41,6 @@ class Tech_FeatureEngineer:
         df['STOCH'] = ta.STOCH(close=df['Close'])
         return df
     
-    
 
 class Macro_FeatureEngineer:
     def interest_rate(df: pd.DataFrame) -> pd.DataFrame:
