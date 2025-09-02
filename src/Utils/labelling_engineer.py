@@ -2,7 +2,6 @@ import pandas as pd
 import numpy as np
 from dotenv import load_dotenv
 load_dotenv()
-fred = fredapi.Fred(api_key=os.getenv("FRED_API_KEY"))
 
 class LabellingEngineer:
     def __init__(self):
@@ -55,7 +54,7 @@ class Labbelling_engineer_model_fitting():
 
 # ----- random forest labelling method ----
 #we have to give an input threshold to the random forest, this will be a list type 
-    def rand_forest_multiclass_labelling_method(df,threshold = List[float]):
+    def rand_forest_multiclass_labelling_method(df,threshold):
         returns = df['Close'].pct_change()
         df['TARGET'] = np.where(returns < threshold[0], 1, np.where(returns > threshold[1], 2, 1))
         return
@@ -89,7 +88,7 @@ class Labbelling_engineer_model_fitting():
         return df
 
 
-    def rand_forest_quantil_labelling_method(df, quantil = List[float]):
+    def rand_forest_quantil_labelling_method(df, quantil):
         returns = df['Close'].pct_change()
 
         df['TARGET'] = np.qcut(returns, q=quantil, labels=range(5)) #0,1,2,3,4 = labels'names

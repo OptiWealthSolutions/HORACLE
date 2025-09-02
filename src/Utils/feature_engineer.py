@@ -1,8 +1,8 @@
 import pandas as pd
 import numpy as np
-import fredapi 
 import os 
 from dotenv import load_dotenv
+from fredapi import Fred
 load_dotenv()
 
 # Feature Engineering
@@ -12,48 +12,60 @@ load_dotenv()
 # Lag features : inclure des retards pour capturer la persistence
 # Rolling statistics : statistiques glissantes sur différentes périodes
 
-import pandas_ta as ta
+
 class Tech_FeatureEngineer:
     def __init__(self):
         pass
 
-    def sma(df: pd.DataFrame,period) -> pd.DataFrame:
-        #rsi,sma,return lag
-        #moving average features
-        df[f'Mov_av_{period}'] = df['Close'].rolling(period).mean()
+    def SMA(self, df: pd.DataFrame, period) -> pd.DataFrame:
+        # moving average features
+        df[f'Mov_av_{period}'] = df['Close'].rolling(window=period).mean()
+        return df
 
-    def rsi(df: pd.DataFrame,period) -> pd.DataFrame:
-        df[f'RSI_{period}'] = ta.RSI(close=df['Close'], length=period)
+    def RSI(self, df: pd.DataFrame, period) -> pd.DataFrame:
+        delta = df['Close'].diff()
+        gain = delta.where(delta > 0, 0)
+        loss = -delta.where(delta < 0, 0)
+        avg_gain = gain.rolling(window=period, min_periods=period).mean()
+        avg_loss = loss.rolling(window=period, min_periods=period).mean()
+        rs = avg_gain / avg_loss
+        rsi = 100 - (100 / (1 + rs))
+        df[f'RSI_{period}'] = rsi
+        return df
 
-    def lag_return(df,lags = List[int]):
-        #return lag n for n target horizons we want n-1 lag for targeting data we have not seen before
+    def LAG_RETURN(self, df, lags):
         for n in lags:
-            df[f'RETURN_LAG_{n}'] = df['Close'].diff(n)
+            df[f'RETURN_LAG_{n}'] = df['Close'].pct_change(periods=n)
         return df
-    def macd(df):
-        df['MACD'] = ta.MACD(close=df['Close'])
+
+    def MACD(self, df):
+        ema12 = df['Close'].ewm(span=12, adjust=False).mean()
+        ema26 = df['Close'].ewm(span=26, adjust=False).mean()
+        macd_line = ema12 - ema26
+        signal_line = macd_line.ewm(span=9, adjust=False).mean()
+        df['MACD'] = macd_line
+        df['MACD_signal'] = signal_line
         return df
-    
-    def rsi(df):
-        df['RSI'] = ta.RSI(close=df['Close'])
-        return df
-    
-    def stoch(df):
-        df['STOCH'] = ta.STOCH(close=df['Close'])
+
+    def STOCH(self, df):
+        low14 = df['Low'].rolling(window=14).min()
+        high14 = df['High'].rolling(window=14).max()
+        stoch = 100 * (df['Close'] - low14) / (high14 - low14)
+        df['STOCH'] = stoch
         return df
     
 
 class Macro_FeatureEngineer:
-    def interest_rate(df: pd.DataFrame) -> pd.DataFrame:
-        fred = fredapi.Fred(api_key=os.getenv("FRED_API_KEY"))
+    def interest_rate(self,df: pd.DataFrame) -> pd.DataFrame:
+        fred = Fred(api_key=os.getenv("FRED_API_KEY"))
         return df
-    def cpi(df: pd.DataFrame) -> pd.DataFrame:
+    def cpi(self,df: pd.DataFrame) -> pd.DataFrame:
         return df
-    def ppi(df: pd.DataFrame) -> pd.DataFrame:
+    def ppi(self,df: pd.DataFrame) -> pd.DataFrame:
         return df
-    def gdp(df: pd.DataFrame) -> pd.DataFrame:
+    def gdp(self,df: pd.DataFrame) -> pd.DataFrame:
         return df
-    def sentiment(df):
+    def sentiment(self,df: pd.DataFrame) -> pd.DataFrame:
         return df
 class Quant_FeatureEngineer:
     # Volatility clustering : clustering de volatilité
@@ -65,4 +77,3 @@ class Quant_FeatureEngineer:
         return df
     def atr (df: pd.DataFrame) -> pd.DataFrame:
         return df
-
