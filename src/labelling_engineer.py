@@ -1,5 +1,8 @@
 import pandas as pd
 import numpy as np
+from dotenv import load_dotenv
+load_dotenv()
+fred = fredapi.Fred(api_key=os.getenv("FRED_API_KEY"))
 
 class LabellingEngineer:
     def __init__(self):

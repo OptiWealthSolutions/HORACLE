@@ -3,6 +3,14 @@ import numpy as np
 import fredapi 
 from dotenv import load_dotenv
 load_dotenv()
+
+# Feature Engineering
+
+# Normalisation : standardiser les features pour éviter les biais d'échelle
+# Windowing : utiliser différentes fenêtres temporelles (court, moyen, long terme)
+# Lag features : inclure des retards pour capturer la persistence
+# Rolling statistics : statistiques glissantes sur différentes périodes
+
 import pandas_ta as ta
 class Tech_FeatureEngineer:
     def __init__(self):
@@ -32,9 +40,16 @@ class Macro_FeatureEngineer:
         return df
     def gdp(df: pd.DataFrame) -> pd.DataFrame:
         return df
-
+    def sentiment(df):
+        return df
 class Quant_FeatureEngineer:
-    def quant_features_engineer (df: pd.DataFrame) -> pd.DataFrame:
-        #momentum,volatility,spread ,
+    # Volatility clustering : clustering de volatilité
+    # VIX-related features : indicateurs liés à la peur du marché
+    # ATR (Average True Range) : plage vraie moyenne
+    def vol_clustering (df: pd.DataFrame) -> pd.DataFrame:
+        return df
+    def vix_based (df: pd.DataFrame) -> pd.DataFrame:
+        return df
+    def atr (df: pd.DataFrame) -> pd.DataFrame:
         return df
 
