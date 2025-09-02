@@ -59,7 +59,36 @@ class Labbelling_engineer_model_fitting():
         returns = df['Close'].pct_change()
         df['TARGET'] = np.where(returns < threshold[0], 1, np.where(returns > threshold[1], 2, 1))
         return
-    
+        
+    def rand_forest_labelling_threshold(df,prediction_horizon):
+        df = df.copy()
+        
+        # Calcul du rendement futur sur prediction_horizon jours
+        future_returns = df['Close'].shift(-prediction_horizon) / df['Close'] - 1
+        
+        # Définition des seuils pour la classification (ajustables)
+        strong_sell_threshold = future_returns.quantile(0.15)  # 15% les plus faibles
+        sell_threshold = future_returns.quantile(0.35)        # 35% les plus faibles
+        buy_threshold = future_returns.quantile(0.65)         # 65% les plus élevés
+        strong_buy_threshold = future_returns.quantile(0.85)  # 15% les plus élevés
+        
+        # Création des labels
+        labels = np.zeros(len(future_returns))
+        labels[future_returns <= strong_sell_threshold] = -2  # Vente forte
+        labels[(future_returns > strong_sell_threshold) & (future_returns <= sell_threshold)] = -1  # Vente
+        labels[(future_returns > sell_threshold) & (future_returns < buy_threshold)] = 0   # Hold
+        labels[(future_returns >= buy_threshold) & (future_returns < strong_buy_threshold)] = 1    # Achat
+        labels[future_returns >= strong_buy_threshold] = 2    # Achat fort
+        
+        df['target'] = labels
+        df['future_returns'] = future_returns
+        
+        print(f"Distribution des labels:")
+        print(pd.Series(labels).value_counts().sort_index())
+        
+        return df
+
+
     def rand_forest_quantil_labelling_method(df, quantil = List[float]):
         returns = df['Close'].pct_change()
 

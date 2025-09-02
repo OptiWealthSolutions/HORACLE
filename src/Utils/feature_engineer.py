@@ -29,6 +29,19 @@ class Tech_FeatureEngineer:
         for n in lags:
             df[f'RETURN_LAG_{n}'] = df['Close'].diff(n)
         return df
+    def macd(df):
+        df['MACD'] = ta.MACD(close=df['Close'])
+        return df
+    
+    def rsi(df):
+        df['RSI'] = ta.RSI(close=df['Close'])
+        return df
+    
+    def stoch(df):
+        df['STOCH'] = ta.STOCH(close=df['Close'])
+        return df
+    
+    
 
 class Macro_FeatureEngineer:
     def interest_rate(df: pd.DataFrame) -> pd.DataFrame:
