@@ -10,7 +10,7 @@ import statsmodels.api as sm
 from statsmodels.regression.rolling import RollingOLS
 import pandas_datareader.data as web
 import yfinance as yf
-import pandas_ta
+## import pandas_ta  # Removed due to ImportError; technical indicators are calculated manually below
 npNaN = np.nan
 from sklearn.cluster import KMeans
 from pypfopt.efficient_frontier import EfficientFrontier
@@ -82,98 +82,86 @@ def calculate_technical_indicators(df):
         print(f"Erreur Garman-Klass: {e}")
         df['garman_klass_vol'] = df.groupby('ticker')['close'].pct_change().rolling(20).std()
 
-    # RSI
+    # RSI (manual implementation)
     try:
-        df['rsi'] = df.groupby('ticker', group_keys=False)['close'].apply(
-            lambda x: pandas_ta.rsi(close=x, length=20) if len(x) > 20 else pd.Series(50, index=x.index)
-        )
+        def manual_rsi(series, window=20):
+            delta = series.diff()
+            up = delta.clip(lower=0)
+            down = -1 * delta.clip(upper=0)
+            roll_up = up.rolling(window=window, min_periods=window).mean()
+            roll_down = down.rolling(window=window, min_periods=window).mean()
+            rs = roll_up / (roll_down + 1e-10)
+            rsi = 100 - (100 / (1 + rs))
+            rsi = rsi.fillna(50)
+            return rsi
+        df['rsi'] = df.groupby('ticker', group_keys=False)['close'].apply(lambda x: manual_rsi(x, window=20))
     except Exception as e:
         print(f"Erreur RSI: {e}")
         df['rsi'] = 50  # Valeur par défaut
 
-    # Bollinger Bands (version simplifiée)
+    # Bollinger Bands (rolling mean and std)
     try:
-        def safe_bbands(close_series):
-            if len(close_series) < 20:
-                sma = close_series.mean()
-                std = close_series.std() if close_series.std() > 0 else 0.01
-                return pd.DataFrame({
-                    'lower': sma - 2*std,
-                    'middle': sma,
-                    'upper': sma + 2*std
-                }, index=close_series.index)
-            
-            bb = pandas_ta.bbands(close=close_series, length=20)
-            if bb is None or bb.empty:
-                sma = close_series.rolling(20).mean()
-                std = close_series.rolling(20).std()
-                return pd.DataFrame({
-                    'lower': sma - 2*std,
-                    'middle': sma,
-                    'upper': sma + 2*std
-                }, index=close_series.index)
-            return bb.iloc[:, [0, 1, 2]]  # BBL, BBM, BBU
-        
-        bb_data = df.groupby('ticker', group_keys=False)['close'].apply(safe_bbands)
-        df['bb_low'] = bb_data.iloc[:, 0] if not bb_data.empty else df['close'] * 0.95
-        df['bb_mid'] = bb_data.iloc[:, 1] if not bb_data.empty else df['close']
-        df['bb_high'] = bb_data.iloc[:, 2] if not bb_data.empty else df['close'] * 1.05
-        
+        def manual_bbands(close_series, window=20):
+            sma = close_series.rolling(window).mean()
+            std = close_series.rolling(window).std()
+            lower = sma - 2 * std
+            upper = sma + 2 * std
+            middle = sma
+            bb = pd.DataFrame({'lower': lower, 'middle': middle, 'upper': upper}, index=close_series.index)
+            return bb
+        bb_data = df.groupby('ticker', group_keys=False)['close'].apply(lambda x: manual_bbands(x, window=20))
+        if not bb_data.empty:
+            df['bb_low'] = bb_data['lower']
+            df['bb_mid'] = bb_data['middle']
+            df['bb_high'] = bb_data['upper']
+        else:
+            df['bb_low'] = df['close'] * 0.95
+            df['bb_mid'] = df['close']
+            df['bb_high'] = df['close'] * 1.05
     except Exception as e:
         print(f"Erreur Bollinger Bands: {e}")
         # Valeurs par défaut
-        sma20 = df.groupby('ticker')['close'].rolling(20).mean()
-        std20 = df.groupby('ticker')['close'].rolling(20).std()
+        sma20 = df.groupby('ticker')['close'].rolling(20).mean().reset_index(level=0, drop=True)
+        std20 = df.groupby('ticker')['close'].rolling(20).std().reset_index(level=0, drop=True)
         df['bb_low'] = sma20 - 2 * std20
         df['bb_mid'] = sma20
         df['bb_high'] = sma20 + 2 * std20
 
-    # ATR normalisé
-    def safe_compute_atr(stock_data):
+    # ATR normalisé (manual calculation)
+    def manual_atr(stock_data, window=14):
         try:
-            if len(stock_data) < 14:
-                return pd.Series(0.02, index=stock_data.index)  # Valeur par défaut
-            
-            atr = pandas_ta.atr(high=stock_data['high'],
-                               low=stock_data['low'],
-                               close=stock_data['close'],
-                               length=14)
-            if atr is None or atr.empty:
-                # Calcul ATR manuel
-                high_low = stock_data['high'] - stock_data['low']
-                high_close = abs(stock_data['high'] - stock_data['close'].shift())
-                low_close = abs(stock_data['low'] - stock_data['close'].shift())
-                true_range = pd.concat([high_low, high_close, low_close], axis=1).max(axis=1)
-                atr = true_range.rolling(14).mean()
-            
-            return atr.sub(atr.mean()).div(atr.std()) if atr.std() > 0 else atr.fillna(0)
+            if len(stock_data) < window:
+                return pd.Series(0.02, index=stock_data.index)
+            high_low = stock_data['high'] - stock_data['low']
+            high_close = (stock_data['high'] - stock_data['close'].shift()).abs()
+            low_close = (stock_data['low'] - stock_data['close'].shift()).abs()
+            true_range = pd.concat([high_low, high_close, low_close], axis=1).max(axis=1)
+            atr = true_range.rolling(window).mean()
+            if atr.std() > 0:
+                return (atr - atr.mean()) / atr.std()
+            else:
+                return atr.fillna(0)
         except Exception as e:
             print(f"Erreur ATR pour un stock: {e}")
             return pd.Series(0.02, index=stock_data.index)
+    df['atr'] = df.groupby('ticker', group_keys=False).apply(lambda x: manual_atr(x, window=14))
 
-    df['atr'] = df.groupby('ticker', group_keys=False).apply(safe_compute_atr)
-
-    # MACD normalisé
-    def safe_compute_macd(close_series):
+    # MACD normalisé (manual calculation)
+    def manual_macd(close_series):
         try:
             if len(close_series) < 26:
                 return pd.Series(0, index=close_series.index)
-            
-            macd_data = pandas_ta.macd(close=close_series, length=20)
-            if macd_data is None or macd_data.empty:
-                # Calcul MACD manuel
-                ema12 = close_series.ewm(span=12).mean()
-                ema26 = close_series.ewm(span=26).mean()
-                macd_line = ema12 - ema26
+            ema12 = close_series.ewm(span=12, adjust=False).mean()
+            ema26 = close_series.ewm(span=26, adjust=False).mean()
+            macd_line = ema12 - ema26
+            if macd_line.std() > 0:
+                return (macd_line - macd_line.mean()) / macd_line.std()
             else:
-                macd_line = macd_data.iloc[:, 0]  # MACD line
-            
-            return macd_line.sub(macd_line.mean()).div(macd_line.std()) if macd_line.std() > 0 else macd_line.fillna(0)
+                return macd_line.fillna(0)
         except Exception as e:
             print(f"Erreur MACD: {e}")
             return pd.Series(0, index=close_series.index)
-
-    df['macd'] = df.groupby('ticker', group_keys=False)['close'].apply(safe_compute_macd)
+    df['macd'] = df.groupby('ticker', group_keys=False)['close'].apply(manual_macd)
 
     # Dollar volume
     df['dollar_volume'] = (df['close'] * df['volume']) / 1e6
@@ -814,23 +802,5 @@ if __name__ == "__main__":
     portfolio_results = main()
     
     # Si des résultats sont disponibles, faire l'analyse des clusters
-    if not portfolio_results.empty:
-        print("\n" + "="*60)
-        print("🎉 STRATÉGIE EXÉCUTÉE AVEC SUCCÈS!")
-        print("="*60)
-        
-        # Note pour l'utilisateur
-        print("\n💡 NOTES IMPORTANTES:")
-        print("- Cette stratégie utilise un clustering basé sur RSI et volatilité")
-        print("- Le cluster 3 (RSI élevé) est considéré comme opportunité de mean reversion")
-        print("- Les poids sont optimisés pour maximiser le ratio de Sharpe")
-        print("- La performance dépend fortement de la qualité des données et des paramètres")
-        print("- Cette version est simplifiée pour les tests - ajustez selon vos besoins")
-    else:
-        print("\n❌ ÉCHEC DE L'EXÉCUTION DE LA STRATÉGIE")
-        print("Vérifiez:")
-        print("- La connexion internet")
-        print("- La disponibilité des données yfinance")
-        print("- Les dépendances installées (pandas_ta, pypfopt, etc.)")
-        
+
     print("\n🔚 FIN DU PROGRAMME")
