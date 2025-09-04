@@ -12,17 +12,37 @@ load_dotenv()
 # Lag features : inclure des retards pour capturer la persistence
 # Rolling statistics : statistiques glissantes sur différentes périodes
 
+class FeatureEngineer:
 
+    def __init__(self):
+        pass
+    def features_preparation(df):
+        #differeciation 
+        df = df.diff().dropna()
+        #normalisation
+        df = (df - df.mean()) / df.std()
+        #windowing (informative)
+        return df
+    
+    def stationarity_test(features_list):
+        for el in features_list:
+            adfuller_result = adfuller(el)
+            p_value = adfuller_result[el][1]
+            print(p_value)
+        return adfuller_result
+
+
+        
 class Tech_FeatureEngineer:
     def __init__(self):
         pass
 
-    def SMA(self, df: pd.DataFrame, period) -> pd.DataFrame:
+    def getSMA(self, df: pd.DataFrame, period) -> pd.DataFrame:
         # moving average features
         df[f'Mov_av_{period}'] = df['Close'].rolling(window=period).mean()
         return df
 
-    def RSI(self, df: pd.DataFrame, period) -> pd.DataFrame:
+    def getRSI(self, df: pd.DataFrame, period) -> pd.DataFrame:
         delta = df['Close'].diff()
         gain = delta.where(delta > 0, 0)
         loss = -delta.where(delta < 0, 0)
@@ -33,12 +53,9 @@ class Tech_FeatureEngineer:
         df[f'RSI_{period}'] = rsi
         return df
 
-    def LAG_RETURN(self, df, lags):
-        for n in lags:
-            df[f'RETURN_LAG_{n}'] = df['Close'].pct_change(periods=n)
-        return df
 
-    def MACD(self, df):
+
+    def getMACD(self, df):
         ema12 = df['Close'].ewm(span=12, adjust=False).mean()
         ema26 = df['Close'].ewm(span=26, adjust=False).mean()
         macd_line = ema12 - ema26
@@ -47,7 +64,7 @@ class Tech_FeatureEngineer:
         df['MACD_signal'] = signal_line
         return df
 
-    def STOCH(self, df):
+    def getSTOCH(self, df):
         low14 = df['Low'].rolling(window=14).min()
         high14 = df['High'].rolling(window=14).max()
         stoch = 100 * (df['Close'] - low14) / (high14 - low14)
@@ -56,24 +73,60 @@ class Tech_FeatureEngineer:
     
 
 class Macro_FeatureEngineer:
-    def interest_rate(self,df: pd.DataFrame) -> pd.DataFrame:
+    def getInterest_rate(self,df: pd.DataFrame) -> pd.DataFrame:
         fred = Fred(api_key=os.getenv("FRED_API_KEY"))
         return df
-    def cpi(self,df: pd.DataFrame) -> pd.DataFrame:
+    def getCPI(self,df: pd.DataFrame) -> pd.DataFrame:
         return df
-    def ppi(self,df: pd.DataFrame) -> pd.DataFrame:
+    def getPPi(self,df: pd.DataFrame) -> pd.DataFrame:
         return df
-    def gdp(self,df: pd.DataFrame) -> pd.DataFrame:
+    def getGDP(self,df: pd.DataFrame) -> pd.DataFrame:
         return df
-    def sentiment(self,df: pd.DataFrame) -> pd.DataFrame:
+    def getSentiment(self,df: pd.DataFrame) -> pd.DataFrame:
         return df
+
 class Quant_FeatureEngineer:
     # Volatility clustering : clustering de volatilité
     # VIX-related features : indicateurs liés à la peur du marché
     # ATR (Average True Range) : plage vraie moyenne
-    def vol_clustering (df: pd.DataFrame) -> pd.DataFrame:
+    def getVol_clustering (df: pd.DataFrame) -> pd.DataFrame:
         return df
-    def vix_based (df: pd.DataFrame) -> pd.DataFrame:
+
+    def getVix_based (df: pd.DataFrame) -> pd.DataFrame:
         return df
-    def atr (df: pd.DataFrame) -> pd.DataFrame:
+
+    def getATR (df: pd.DataFrame) -> pd.DataFrame:
         return df
+
+    def getLAG_RETURN(self, df, lags):
+        for n in lags:
+            df[f'RETURN_LAG_{n}'] = df['Close'].pct_change(periods=n)
+        return df
+
+    def getPriceMomentum(df):
+        return 
+    def get12MonthReturn(df):
+        return 
+    def getPriceAcceleration(df):
+        return
+    def getMomentumFactors(df,n):
+        for lag in range(1, n):
+            df[f'momentum_{lag}'] = df['Close'].pct_change(periods=lag)
+        return df
+
+    def getMomentumPeriod(df,n):
+        prices = df['Close']
+        monthly_prices = prices.resample('M').last()
+        for lag in range(1, n):
+            df[f'return_{lag}m'] = (monthly_prices
+            .pct_change(lag)
+            .stack()
+            .pipe(lambda x: x.clip(lower=x.quantile(0.01), upper=x.quantile(0.99)))
+            .add(1)
+            .pow(1/lag)
+            .sub(1))
+        return df
+
+
+        
+    # --- time indicator ---
