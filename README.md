@@ -9,7 +9,7 @@ Un agent de **trading quantitatif automatique** basé sur données de marché et
 - Générer des **features techniques et macroéconomiques**.
 - Prédire la **direction future des prix** (hausse/baisse).
 - Implémenter des **stratégies de décision robustes**.
-- Automatiser l’**envoi d’ordres sur MetaTrader 5**.
+- Automatiser l’**envoi d’ordres sur Telegram**.
 - Backtester et monitorer la performance avec gestion du risque.
 
 ---

@@ -458,10 +458,10 @@ def calculate_portfolio_returns(fixed_dates, data):
         print(f"Téléchargement des prix quotidiens pour {len(stocks)} actions...")
         daily_prices = yf.download(tickers=stocks, start=start_download, end=end_download)
         
-        if 'Adj Close' in daily_prices.columns:
-            daily_prices = daily_prices['Adj Close']
+        if 'Close' in daily_prices.columns:
+            daily_prices = daily_prices['Close']
         else:
-            daily_prices = daily_prices.xs('Adj Close', axis=1, level=1)
+            daily_prices = daily_prices.xs('Close', axis=1, level=1)
         
         # Calculer les rendements quotidiens
         returns_dataframe = np.log(daily_prices).diff().dropna()
@@ -587,7 +587,7 @@ def main():
         # 13. Benchmark (SPY)
         print("\n1️⃣1️⃣ Téléchargement du benchmark...")
         spy = yf.download('SPY', start=start_date, end=end_date)
-        spy_ret = np.log(spy[['Adj Close']]).diff().dropna().rename({'Adj Close': 'SPY Buy&Hold'}, axis=1)
+        spy_ret = np.log(spy[['Close']]).diff().dropna().rename({'Close': 'SPY Buy&Hold'}, axis=1)
         
         # 14. Fusionner les rendements
         portfolio_df = portfolio_df.merge(spy_ret, left_index=True, right_index=True, how='inner')
