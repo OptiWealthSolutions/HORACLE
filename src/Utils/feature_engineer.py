@@ -37,12 +37,12 @@ class Tech_FeatureEngineer:
     def __init__(self):
         pass
 
-    def getSMA(self, df: pd.DataFrame, period) -> pd.DataFrame:
+    def getSMA(self, df: pd.DataFrame, period):
         # moving average features
         df[f'Mov_av_{period}'] = df['Close'].rolling(window=period).mean()
         return df
 
-    def getRSI(self, df: pd.DataFrame, period) -> pd.DataFrame:
+    def getRSI(self, df: pd.DataFrame, period):
         delta = df['Close'].diff()
         gain = delta.where(delta > 0, 0)
         loss = -delta.where(delta < 0, 0)
@@ -52,8 +52,6 @@ class Tech_FeatureEngineer:
         rsi = 100 - (100 / (1 + rs))
         df[f'RSI_{period}'] = rsi
         return df
-
-
 
     def getMACD(self, df):
         ema12 = df['Close'].ewm(span=12, adjust=False).mean()
@@ -73,32 +71,32 @@ class Tech_FeatureEngineer:
     
 
 class Macro_FeatureEngineer:
-    def getInterest_rate(self,df: pd.DataFrame) -> pd.DataFrame:
+    def getInterest_rate(self,df: pd.DataFrame):
         fred = Fred(api_key=os.getenv("FRED_API_KEY"))
         return df
-    def getCPI(self,df: pd.DataFrame) -> pd.DataFrame:
+    def getCPI(self,df: pd.DataFrame):
         return df
-    def getPPi(self,df: pd.DataFrame) -> pd.DataFrame:
+    def getPPi(self,df: pd.DataFrame):
         return df
-    def getGDP(self,df: pd.DataFrame) -> pd.DataFrame:
+    def getGDP(self,df: pd.DataFrame):
         return df
-    def getSentiment(self,df: pd.DataFrame) -> pd.DataFrame:
+    def getSentiment(self,df: pd.DataFrame):
         return df
 
 class Quant_FeatureEngineer:
     # Volatility clustering : clustering de volatilité
     # VIX-related features : indicateurs liés à la peur du marché
     # ATR (Average True Range) : plage vraie moyenne
-    def getVol_clustering (df: pd.DataFrame) -> pd.DataFrame:
+    def getVol_clustering (df: pd.DataFrame):
         return df
 
-    def getVix_based (df: pd.DataFrame) -> pd.DataFrame:
+    def getVix_based (df: pd.DataFrame):
         return df
 
-    def getATR (df: pd.DataFrame) -> pd.DataFrame:
+    def getATR (df: pd.DataFrame):
         return df
 
-    def getLAG_RETURN(self, df, lags):
+    def getLAG_RETURN(df, lags):
         for n in lags:
             df[f'RETURN_LAG_{n}'] = df['Close'].pct_change(periods=n)
         return df
@@ -127,6 +125,10 @@ class Quant_FeatureEngineer:
             .sub(1))
         return df
 
+    def getVol20(df):
+        df['volatility_20'] = df['Close'].rolling(window=20).std()
+        return df
+        
 
         
     # --- time indicator ---

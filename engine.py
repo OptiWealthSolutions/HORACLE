@@ -6,18 +6,12 @@ from sklearn.model_selection import train_test_split
 from sklearn.preprocessing import StandardScaler
 from sklearn.metrics import r2_score
 from sklearn.metrics import classification_report, confusion_matrix
-import warnings
 import pandas as pd
 import numpy as np
 import yfinance as yf
-import sys
 import matplotlib.pyplot as plt
 import statsmodels.api as sm
-from statsmodels.stats.diagnostic import het_breuschpagan
 from statsmodels.tsa.stattools import adfuller
-from statsmodels.stats.outliers_influence import variance_inflation_factor
-from scipy.stats import shapiro
-import statsmodels.graphics.gofplots as smg
 from sklearn.linear_model import LogisticRegression
 
 #ML workflow :
@@ -38,76 +32,114 @@ from sklearn.linear_model import LogisticRegression
 tickerlist = ["EURUSD=X","GBPUSD=X","USDJPY=X","USDCAD=X","AUDUSD=X","NZDUSD=X"]
 
 # --- Data Loading, Cleaning and processing ---
-
+def getDataLoad(ticker,period,interval):
+    df = yf.download(ticker, period=period, progress=False,interval=interval)
+    if df.empty:
+        raise ValueError(f"Aucune donnée pour {ticker}")
+    df = df['Close'].copy()
+    df = df.copy()
+    df = df.dropna()
+    return df
 
 # --- Features Creating, Engineering, Comparaison and Selection ---
-# Linearity, Normality, Homoscedasticity, Stationarity, Multicollinearity 
+# Linearity, Normality, 
+# Homoscedasticity,
+# Stationarity, 
+def getDataStationarityTest(df, feature_name: str, significance=0.05):
+    series = df[feature_name].dropna()
+    result = adfuller(series)
+    p_value = result[1]
+    stationary = p_value < significance
+    return {"p_value": p_value, "stationary": stationary}
 
+# Multicollinearity 
+#covariance matrix for testing colinearity
 
 # --- Labelling Engineering ---
 # Mutliclass Threshold Labelling and Triple barrier labelling
-def getRandomForestClassifierLabel(df,prediction_horizon):
-        # Calcul du rendement futur sur prediction_horizon jours
-        future_returns = df['Close'].shift(-prediction_horizon) / df['Close'] - 1
-        future_returns = future_returns.iloc[:, 0]  # prendre la première colonne si c'est un DataFrame
-        # Définition des seuils pour la classification (ajustables)
-        strong_sell_threshold = future_returns.quantile(0.15)  # 15% les plus faibles
-        sell_threshold = future_returns.quantile(0.35)        # 35% les plus faibles
-        buy_threshold = future_returns.quantile(0.65)         # 65% les plus élevés
-        strong_buy_threshold = future_returns.quantile(0.85)  # 15% les plus élevés
-        # Création des labels
-        labels = np.zeros(len(future_returns))
-        labels[future_returns <= strong_sell_threshold] = -2  # Vente forte
-        labels[(future_returns > strong_sell_threshold) & (future_returns <= sell_threshold)] = -1  # Vente
-        labels[(future_returns > sell_threshold) & (future_returns < buy_threshold)] = 0   # Hold
-        labels[(future_returns >= buy_threshold) & (future_returns < strong_buy_threshold)] = 1    # Achat
-        labels[future_returns >= strong_buy_threshold] = 2    # Achat fort
-        df['target'] = labels
-        df['future_returns'] = future_returns
+def getDailyVol(df):
+    df = df['Close'].index.searchsorted(df['Close'].index - pd.Timedelta(days=1))
+    df = df[df > 0]
+    df = (pd.Series(df.index[df - 1], 
+                   index=df.index[df.shape[0] - df.shape[0]:]))
+    
+    df = df.loc[df.index] / df.loc[df.values].values - 1  # daily rets
+    df = df.ewm(span=span).std()
+    return df
 
-        return df
+def getEvents(df, threshold):
+    close = df['Close']
+    t_events, s_pos, s_neg = [], 0, 0
+    diff = np.log(close).diff().dropna()
+    
+    for i in diff.index[1:]:
+        pos, neg = float(s_pos + diff.loc[i]), float(s_neg + diff.loc[i])
+        s_pos, s_neg = max(0.0, pos), min(0.0, neg)
+        
+        if s_neg < -threshold:
+            s_neg = 0
+            t_events.append(i)
+        elif s_pos > threshold:
+            s_pos = 0
+            t_events.append(i)
+    
+    return pd.DatetimeIndex(t_events)
 
-def getTripleBarrierLabels():
-    return
+def getSingleBarrier(close, loc, t1, pt, sl):
+    t0 = loc  # Event start time
+    prices = close[loc:t1]  # Prix sur la période
+    
+    if len(prices) < 2:
+        return pd.NaT, np.nan
+    
+    cum_rets = (prices / close[t0] - 1.0)
+    
+    for timestamp, ret in cum_rets.items():
+        if timestamp == t0:
+            continue
+            
+        if pd.notna(pt[t0]) and ret >= pt[t0]:
+            return timestamp, 1  # Profit taking
+        
+        if pd.notna(sl[t0]) and ret <= sl[t0]:
+            return timestamp, -1  # Stop loss
+    
+    return t1, 0  # Time barrier
+
+
+
+def getTripleBarrierLabels(events, min_ret):
+    #min_return_ajd adapted to the volatility
+    close = events['Close']
+    events['return_std'] = close.pct_change().std()
+    events['return_mean'] = close.pct_change().mean()
+    min_return_adj = events['return_mean'] * (2*events['return_std'])
+    bins = events['ret'].copy()
+    bins[bins >= min_return_adj] = 1  # Profit
+    bins[bins <= -min_return_adj] = -1  # Loss
+    bins[(bins < min_return_adj) & (bins > -min_return_adj)] = 0  # Neutral
+    
+    return bins
 # --- Meta-Labelling ---
 def getMetaLabel():
+    
     return
 
-# --- Model Selection ---
-#Primary Model : Random Forest Classifier
-def random_forest_classifier(df):
-    X = df.drop(columns=['target'])
-    Scaler = StandardScaler()
-    X = Scaler.fit_transform(X)
-    y = df['target']
-    # train-test split
-    X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, shuffle=False)
-    model = RandomForestClassifier(n_estimators=100, random_state=42, min_samples_split=5,max_depth=10)
-    # Time Series Cross-Validation on training set
-    tscv = TimeSeriesSplit(n_splits=6)
-    cv_scores = cross_val_score(model, X_train, y_train, cv=tscv, scoring='accuracy')
-    print("Time Series Cross-Validation scores:", cv_scores)
-    print("Mean CV score:", np.mean(cv_scores))
-    # Fit on training set
-    model.fit(X_train, y_train)
-    # Predict on test set
-    y_pred = model.predict(X_test)
-    print("Classification Report on Test Set:")
-    print(classification_report(y_test, y_pred))
-    print("Confusion Matrix on Test Set:")
-    print(confusion_matrix(y_test, y_pred))
-    print(y_pred)
-    return model
-
-# --- Meta-labelling Model ---
+# --- Model(s) Building ---
+#Primary Model : "Random Forest Classifier"
 
 
-# --- Model Training, Testing, Validation ---
+#Meta-labelling Model
+
+
+# --- Model(s) Training, Testing, Validation ---
 # train-test split
+
 #cross-validation
+
 #hyper params
 
-# --- Model measurement --- 
+# --- Model(s) measurement --- 
 #classification report
 #confusion matrix
 
@@ -117,5 +149,4 @@ def random_forest_classifier(df):
 # --- Main function activation ---
 
 if __name__ == "__main__":
-    
-
+    pass
