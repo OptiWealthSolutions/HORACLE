@@ -13,8 +13,7 @@ import matplotlib.pyplot as plt
 import statsmodels.api as sm
 from statsmodels.tsa.stattools import adfuller
 from sklearn.metrics import accuracy_score
-
-
+from seaborn import heatmap
 
 #ML workflow :
 #Collect Clean and Validate DATA --> Extract & Engineer Features --> Labelling --> 
@@ -38,7 +37,6 @@ def getDataLoad(ticker,period,interval):
     df = yf.download(ticker, period=period, progress=False,interval=interval)
     if df.empty:
         raise ValueError(f"Aucune donnée pour {ticker}")
-    df = df['Close'].copy()
     df = df.copy()
     df = df.dropna()
     return df
@@ -54,13 +52,88 @@ def getDataStationarityTest(df, feature_name: str, significance=0.05):
     stationary = p_value < significance
     return {"p_value": p_value, "stationary": stationary}
 
+# function which compute features 
+def computeFeatures(df):
+    #standardisation
+    def getDataStandardized (df):
+        df = df.copy()
+        scaler = StandardScaler()
+        df = scaler.fit_transform(df)
+        return df #ne pas strandardiser les features deja en % ou deja normalisées
 
+    def getSMA(df: pd.DataFrame, period):
+            # moving average features
+            df[f'Mov_av_{period}'] = df['Close'].rolling(window=period).mean()
+            getDataStandardized(df[f'Mov_av_{period}'])
+            return df
+
+    def getRSI(df: pd.DataFrame, period):
+            delta = df['Close'].diff()  
+            gain = delta.where(delta > 0, 0)
+            loss = -delta.where(delta < 0, 0)
+            avg_gain = gain.rolling(window=period, min_periods=period).mean()
+            avg_loss = loss.rolling(window=period, min_periods=period).mean()
+            rs = avg_gain / avg_loss
+            rsi = 100 - (100 / (1 + rs))
+            df[f'RSI_{period}'] = rsi
+            return df
+
+    def getMACD(df):
+            ema12 = df['Close'].ewm(span=12, adjust=False).mean()
+            ema26 = df['Close'].ewm(span=26, adjust=False).mean()
+            macd_line = ema12 - ema26
+            signal_line = macd_line.ewm(span=9, adjust=False).mean()
+            df['MACD'] = macd_line
+            df['MACD_signal'] = signal_line
+            getDataStandardized(df[f'MACD_signal'])
+            return df
+
+    def getSTOCH(df):
+            low14 = df['Low'].rolling(window=14).min()
+            high14 = df['High'].rolling(window=14).max()
+            stoch = 100 * (df['Close'] - low14) / (high14 - low14)
+            df['STOCH'] = stoch
+            getDataStandardized(df[f'STOCH'])
+            return df
+
+    def getMomentumFactors(df,n):
+        for lag in range(1, n):
+            df[f'momentum_{lag}'] = df['Close'].pct_change(periods=lag)
+        return df
+
+    def getMomentumPeriod(df,n):
+        prices = df['Close']
+        monthly_prices = prices.resample('M').last()
+        for lag in range(1, n):
+            df[f'return_{lag}m'] = (monthly_prices
+            .pct_change(lag)
+            .pipe(lambda x: x.clip(lower=x.quantile(0.01), upper=x.quantile(0.99)))
+            .add(1)
+            .pow(1/lag)
+            .sub(1))
+            getDataStandardized(df[f'return_{lag}m'])
+    def getVolumeStandardize(df):
+        df['Volume'] = getDataStandardized(df['Volume'])
+        return df
+
+    def getFeaturesClean(df):
+        df = df.dropna()
+        df.drop('High', axis=1, inplace=True)
+        df.drop('Low', axis=1, inplace=True)
+        df.drop('Open', axis=1, inplace=True)
+        return df
+    return Primary_df
 # Multicollinearity 
 #covariance matrix for testing colinearity
-
+def getCovMatrix(df,featureslist):
+    df = df[featureslist].dropna()
+    cov_matrix_df = df.cov()
+    seaborn.heatmap(cov_matrix_df, annot=True, cmap='coolwarm')
+    plt.show()
+    return 
 # --- Labelling Engineering ---
 # Mutliclass Threshold Labelling and Triple barrier labelling
-def getDailyVol(df):
+def getDailyVol(df,span=100):
     df = df['Close'].index.searchsorted(df['Close'].index - pd.Timedelta(days=1))
     df = df[df > 0]
     df = (pd.Series(df.index[df - 1], 
@@ -108,7 +181,6 @@ def getSingleBarrier(close, loc, t1, pt, sl):
             return timestamp, -1  # Stop loss
     
     return t1, 0  # Time barrier
-
 
 
 def getTripleBarrierLabels(events, min_ret):
@@ -193,17 +265,12 @@ def getMetaFeatures(primary_model, X, y, close, events):
     return meta_features
 # --- Model(s) Building ---
 #Primary Model : "Random Forest Classifier"
-def RandomForestClassifier(features_df,target):
+def RandomForestClassifier_(features_df,target):
     #features and target
     X = features_df
     y = target
 
-    #features that we have to standardize (not RSI, or % expressed features, onyl level features like SMA, OBV, etc)
-    X_not_ajd_ = X[''] 
-    normalized_features = StandardScaler().fit_transform(X_not_ajd_)
 
-    #concat two df to make one with only standardized features
-    X = pd.concat([X_not_ajd_, pd.DataFrame(normalized_features, columns=X_not_ajd_.columns)], axis=1)
 
     #train test split
     X_train,y_train,X_test,y_test = train_test_split(
@@ -240,10 +307,10 @@ def RandomForestClassifier(features_df,target):
     #metrics
     r2 = r2_score(y_test,PrimaryModel.predict(X_test))
     print(f"R2 score: {r2}")
-    confusion_matrix = confusion_matrix(y_test,PrimaryModel.predict(X_test))
-    print(f"Confusion matrix: {confusion_matrix}")
-    classification_report = classification_report(y_test,PrimaryModel.predict(X_test))
-    print(f"Classification report: {classification_report}")
+    confusion_matrix_ = confusion_matrix(y_test,PrimaryModel.predict(X_test))
+    print(f"Confusion matrix: {confusion_matrix_}")
+    classification_report_ = classification_report(y_test,PrimaryModel.predict(X_test))
+    print(f"Classification report: {classification_report_}")
     
 
     return PrimaryModel.predict(X_test)
@@ -283,10 +350,10 @@ def MetaModel(meta_features, events, threshold_profit=0.02):
     #metrics
     r2 = r2_score(y_test,MetaModel_.predict(X_test))
     print(f"R2 score: {r2}")
-    confusion_matrix = confusion_matrix(y_test,MetaModel_.predict(X_test))
-    print(f"Confusion matrix: {confusion_matrix}")
-    classification_report = classification_report(y_test,MetaModel_.predict(X_test))
-    print(f"Classification report: {classification_report}")
+    confusion_matrix_meta = confusion_matrix(y_test,MetaModel_.predict(X_test))
+    print(f"Confusion matrix: {confusion_matrix_meta}")
+    classification_report_meta = classification_report(y_test,MetaModel_.predict(X_test))
+    print(f"Classification report: {classification_report_meta}")
     
     return MetaModel_.predict(X_test)
 
