@@ -94,7 +94,9 @@ class Labbelling_engineer_model_fitting():
         df['TARGET'] = np.qcut(returns, q=quantil, labels=range(5)) #0,1,2,3,4 = labels'names
         return
 
+    def getTripleBarrierLabels(df):
 
+        return
 # ----- classifier labelling method ----
     def logistic_reg_labelling_method(df):
         return 
