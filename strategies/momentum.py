@@ -10,31 +10,31 @@ from sklearn.ensemble import RandomForestClassifier
 from sklearn.preprocessing import StandardScaler
 from sklearn.metrics import classification_report, confusion_matrix, accuracy_score
 import ta
+from statsmodels.tsa.stattools import adfuller
 
 class MomentumStrategy():
     def __init__(self):
         self.ticker = "EURUSD=X"
-        self.df = getDataLoad(self.ticker)
-        self.df = getDataFrameClean(self.df)
         self.PERIOD = "15y"
-        self.INTERVAL = "1w"
+        self.INTERVAL = "5d"
         self.SHIFT = 5
         self.lags = [1,2,3,6,9,12]
-        self.std_daily = getDailyVol(self.df)
+        self.df = self.getDataLoad()
+        self.df = self.getDataFrameClean()
+        # self.std_daily = getDailyVol(self.df)  # Removed as getDailyVol is undefined
 
     # --- Data Loading, Cleaning and processing ---
     def getDataLoad(self):
-        df = yf.download(ticker, period=PERIOD, interval=INTERVAL)
-        df = df.copy()
+        df = yf.download(self.ticker, period=self.PERIOD, interval=self.INTERVAL)
         df = df.dropna()
-        df['log_return'] = np.log(df['Close'].pct_change())
+        df['log_return'] = np.log(df['Close'] / df['Close'].shift(1))
         return df
 
     def getDataFrameClean(self):
         #deleting of the outlier
         df = self.df.dropna()
-        Q1 = df['feature'].quantile(0.10)
-        Q3 = df['feature'].quantile(0.90)
+        Q1 = df['Close'].quantile(0.10)
+        Q3 = df['Close'].quantile(0.90)
         IQR = Q3 - Q1
 
         # Définir les bornes
@@ -42,22 +42,25 @@ class MomentumStrategy():
         upper_bound = Q3 + 1.5 * IQR
 
         # Filtrer les outliers
-        df_clean = df[(df['feature'] >= lower_bound) & (df['feature'] <= upper_bound)]
+        df_clean = df[(df['Close'] >= lower_bound) & (df['Close'] <= upper_bound)]
         return df_clean
 
     # --- features engineering --- 
     def getRSI(self):
-        self.df['RSI'] = self.df['Close'].pct_change().rolling(window=14).apply(lambda x: 100 - (100 / (1 + np.exp(-x))))
-        return
+        self.df['RSI'] = ta.momentum.RSIIndicator(close=self.df['Close'], window=14).rsi().to_numpy().reshape(-1)
+        return self.df
     
     def PriceMomentum(self):
-        self.df['PriceMomentum'] = ta.momentum.ROCIndicator(close=self.df['Close'], window=12, fillna=False)
-        return
+        self.df['PriceMomentum'] = ta.momentum.ROCIndicator(close=self.df['Close'], window=12).roc().to_numpy().reshape(-1)
+        return self.df
     
     def getLagReturns(self):
+        """Compute lagged log returns for each lag in self.lags.
+        This uses log(Close_t / Close_{t-n}) which is the standard lagged log-return.
+        """
         for n in self.lags:
-            self.df[f'RETURN_LAG_{n}'] = np.log(self.df['Close'].pct_change(periods=n))
-        return
+            self.df[f'RETURN_LAG_{n}'] = np.log(self.df['Close'] / self.df['Close'].shift(n))
+        return self.df
     
     def PriceAccel(self):
         self.df['log_return'] = np.log(self.df['Close'] / self.df['Close'].shift(1))
@@ -67,18 +70,16 @@ class MomentumStrategy():
     
     def getPct52WeekHigh(self):
         self.df['52w_high'] = self.df['High'].rolling(window=252).max()
-        last_52w_high = self.df['52w_high'].iloc[-1]
-        self.df['Pct52WeekHigh'] = self.df['Close']/last_52w_high
+        self.df['Pct52WeekHigh'] = self.df['Close'] / self.df['52w_high']
         return self.df
     
     def getPct52WeekLow(self):
         self.df['52w_low'] = self.df['Low'].rolling(window=252).min()
-        last_52w_low = self.df['52w_low'].iloc[-1]
-        self.df['Pct52WeekLow'] = self.df['Close']/last_52w_low
+        self.df['Pct52WeekLow'] = self.df['Close'] / self.df['52w_low']
         return self.df
     
     def get12MonthPriceMomentum(self):
-        self.df['12MonthPriceMomentum'] = ta.momentum.ROCIndicator(close=self.df['Close'], window=12, fillna=False)
+        self.df['12MonthPriceMomentum'] = ta.momentum.ROCIndicator(close=self.df['Close'], window=12).roc().to_numpy().reshape(-1)
         return self.df
     
     def getVol(self):
@@ -86,13 +87,13 @@ class MomentumStrategy():
         return self.df
 
     def getFeaturesDataSet(self):
-        self.df_features = self.df.drop(['High', 'Low', 'Open', 'Volume', 'Close'], axis=1)
+        self.df_features = self.df.drop(['High', 'Low', 'Open', 'Volume', 'Close'], axis=1, errors='ignore')
         return self.df_features
     
     #--- statisticals test ---
     def testStationarity(self):
         for col in self.df_features.columns:
-            adfuller_result = adfuller(self.df_features[col])
+            adfuller_result = adfuller(self.df_features[col].dropna())
             print(f"Stationarity test for {col}: {adfuller_result}")
         return
     
@@ -107,14 +108,16 @@ class MomentumStrategy():
     #---  labels engineering ---
 
     def getLabels(self):
-        thresold = self.std_daily * 1.2
-        self.df['Label'] = np.where(self.df['Return'].pct_change() > thresold, 1, 
-            np.where(self.df['Return'].pct_change() < -thresold, -1, 0))
+        thresold = self.df['log_return'].std() * 1.2
+        self.df['Label'] = np.where(self.df['log_return'] > thresold, 1, 
+            np.where(self.df['log_return'] < -thresold, -1, 0))
         return self.df
 
     #--- model training ---
     def RandomForest(self):
-        X = self.df_features.drop('Label', axis=1).values   
+        self.df = self.df.dropna(subset=['Label'])
+        self.df_features = self.df_features.loc[self.df.index.intersection(self.df_features.index)]
+        X = self.df_features.drop('Label', axis=1, errors='ignore').values   
         y = self.df['Label'].values
 
         scaler = StandardScaler()
@@ -145,24 +148,24 @@ class MomentumStrategy():
         return
 
 def main():
-    MomentumStrategy = MomentumStrategy()
-    df = MomentumStrategy.getDataLoad()
-    df = MomentumStrategy.getDataFrameClean(df)
-    df = MomentumStrategy.getRSI()
-    df = MomentumStrategy.PriceMomentum()
-    df = MomentumStrategy.getLagReturns()
-    df = MomentumStrategy.PriceAccel()
-    df = MomentumStrategy.getPct52WeekHigh()
-    df = MomentumStrategy.getPct52WeekLow()
-    df = MomentumStrategy.get12MonthPriceMomentum()
-    df = MomentumStrategy.getVol()
-    df = MomentumStrategy.getFeaturesDataSet()
-    df = MomentumStrategy.testStationarity()
-    df = MomentumStrategy.getCorr()
-    df = MomentumStrategy.getFeatureImportance()
-    df = MomentumStrategy.getFeatureSelection()
-    df = MomentumStrategy.getLabels()
-    df = MomentumStrategy.RandomForest()
-    return 
+    ms = MomentumStrategy()
+    # __init__ already loads and cleans data; now compute features and labels
+    ms.getRSI()
+    ms.PriceMomentum()
+    ms.getLagReturns()
+    ms.PriceAccel()
+    ms.getPct52WeekHigh()
+    ms.getPct52WeekLow()
+    ms.get12MonthPriceMomentum()
+    ms.getVol()
+    ms.getFeaturesDataSet()
+    ms.testStationarity()
+    ms.getCorr()
+    ms.getFeatureImportance()
+    ms.getFeatureSelection()
+    ms.getLabels()
+    ms.RandomForest()
+    return
 
-main()
+if __name__ == "__main__":
+    main()
