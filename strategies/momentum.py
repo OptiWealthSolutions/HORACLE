@@ -15,7 +15,7 @@ from statsmodels.tsa.stattools import adfuller
 class MomentumStrategy():
     def __init__(self):
         self.ticker = "EURUSD=X"
-        self.PERIOD = "15y"
+        self.PERIOD = "20y"
         self.INTERVAL = "5d"
         self.SHIFT = 5
         self.lags = [1,2,3,6,9,12]
@@ -109,46 +109,16 @@ class MomentumStrategy():
     #---  labels engineering ---
    
 
-    def getLabels(self, seuil_lambda=0.1):
-        # DIAGNOSTIC 1: Vérifier les données de base
-        print(f"Statistiques de la colonne 'return':")
-        print(self.df['return'].describe())
-        print(f"\nNombre de NaN: {self.df['return'].isna().sum()}")
-        
-        # DIAGNOSTIC 2: Vérifier le seuil par rapport aux données
-        print(f"\nSeuil utilisé: ±{seuil_lambda}")
-        print(f"Valeurs > {seuil_lambda}: {(self.df['return'] > seuil_lambda).sum()}")
-        print(f"Valeurs < -{seuil_lambda}: {(self.df['return'] < -seuil_lambda).sum()}")
-        print(f"Valeurs entre ±{seuil_lambda}: {((self.df['return'] >= -seuil_lambda) & (self.df['return'] <= seuil_lambda)).sum()}")
-        
-        # DIAGNOSTIC 3: Proposer des seuils alternatifs basés sur les quantiles
-        q95 = self.df['return'].quantile(0.95)
-        q05 = self.df['return'].quantile(0.05)
-        std_return = self.df['return'].std()
-        
-        print(f"\nSeuils alternatifs suggérés:")
-        print(f"  95e percentile: {q95:.4f}")
-        print(f"  5e percentile: {q05:.4f}")
-        print(f"  1 écart-type: ±{std_return:.4f}")
-        print(f"  0.5 écart-type: ±{std_return*0.5:.4f}")
-        
-        # Créer les labels avec le seuil donné
-        self.df['TARGET'] = np.where(self.df['return'] > seuil_lambda, 1, 
-                                    np.where(self.df['return'] < -seuil_lambda, -1, 0))
-        
-        # DIAGNOSTIC 4: Distribution finale
-        print(f"\nDistribution des labels avec seuil {seuil_lambda}:")
-        print(self.df['TARGET'].value_counts().sort_index())
-        
-        # Sauvegarder
-        self.df['TARGET'].to_csv('labels.csv', index=False)
-        
+    def getLabels(self) -> pd.DataFrame:
+        self.df['Target'] = self.df['Close'].pct_change().shift(-5)
+        self.df['Target'] = np.where(self.df['Target'] > 0.05, 1,  np.where(self.df['Target'] < -0.05, -1, 0))
+        self.df['Target'].to_csv("target.csv")
         return self.df
-        
+
     #--- model training ---
     def RandomForest(self):
         X = self.df_features.values 
-        y = self.df['TARGET'].values
+        y = self.df['Target'].values
         print(self.df)
         scaler = StandardScaler()
         X_scaled = scaler.fit_transform(X)
