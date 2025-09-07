@@ -86,6 +86,8 @@ class MomentumStrategy():
 
     def getFeaturesDataSet(self):
         self.df_features = self.df.drop(['High', 'Low', 'Open', 'Volume', 'Close'], axis=1, errors='ignore')
+        self.df_features
+        print(self.df_features)
         return self.df_features
     
     #--- statisticals test ---
@@ -103,27 +105,50 @@ class MomentumStrategy():
     
     # def getFeatureSelection(self):
     #     return
+
     #---  labels engineering ---
-    def getLabels(self):
-        threshold = self.df['return'].std() * 0.5
-        print(f"Threshold: {threshold}")
-        print(f"Log return range: {self.df['log_return'].min()} to {self.df['log_return'].max()}")
-        
-        self.df['Label'] = np.where(self.df['return'] > threshold, 1, 
-            np.where(self.df['return'] < -threshold, -1, 0))
+   
 
-        print(f"Label distribution:\n{self.df['Label'].value_counts()}")
+    def getLabels(self, seuil_lambda=0.1):
+        # DIAGNOSTIC 1: Vérifier les données de base
+        print(f"Statistiques de la colonne 'return':")
+        print(self.df['return'].describe())
+        print(f"\nNombre de NaN: {self.df['return'].isna().sum()}")
         
-        # Ne pas remplacer tout le DataFrame !
-        self.df = self.df['Label'].dropna()
-        self.df.to_csv('labels.csv')  # Sauvegarde tout le DataFrame
-        return self.df['Label'] 
-
+        # DIAGNOSTIC 2: Vérifier le seuil par rapport aux données
+        print(f"\nSeuil utilisé: ±{seuil_lambda}")
+        print(f"Valeurs > {seuil_lambda}: {(self.df['return'] > seuil_lambda).sum()}")
+        print(f"Valeurs < -{seuil_lambda}: {(self.df['return'] < -seuil_lambda).sum()}")
+        print(f"Valeurs entre ±{seuil_lambda}: {((self.df['return'] >= -seuil_lambda) & (self.df['return'] <= seuil_lambda)).sum()}")
+        
+        # DIAGNOSTIC 3: Proposer des seuils alternatifs basés sur les quantiles
+        q95 = self.df['return'].quantile(0.95)
+        q05 = self.df['return'].quantile(0.05)
+        std_return = self.df['return'].std()
+        
+        print(f"\nSeuils alternatifs suggérés:")
+        print(f"  95e percentile: {q95:.4f}")
+        print(f"  5e percentile: {q05:.4f}")
+        print(f"  1 écart-type: ±{std_return:.4f}")
+        print(f"  0.5 écart-type: ±{std_return*0.5:.4f}")
+        
+        # Créer les labels avec le seuil donné
+        self.df['TARGET'] = np.where(self.df['return'] > seuil_lambda, 1, 
+                                    np.where(self.df['return'] < -seuil_lambda, -1, 0))
+        
+        # DIAGNOSTIC 4: Distribution finale
+        print(f"\nDistribution des labels avec seuil {seuil_lambda}:")
+        print(self.df['TARGET'].value_counts().sort_index())
+        
+        # Sauvegarder
+        self.df['TARGET'].to_csv('labels.csv', index=False)
+        
+        return self.df
+        
     #--- model training ---
     def RandomForest(self):
-        self.df_features = self.df_features.loc[self.df.index.intersection(self.df_features.index)]
         X = self.df_features.values 
-        y = self.df.values
+        y = self.df['TARGET'].values
         print(self.df)
         scaler = StandardScaler()
         X_scaled = scaler.fit_transform(X)

@@ -1,6 +1,8 @@
 import pandas as pd
 import numpy as np
 from dotenv import load_dotenv
+
+from models import random_forest
 load_dotenv()
 
 class LabellingEngineer:
@@ -90,8 +92,7 @@ class Labbelling_engineer_model_fitting():
 
     def rand_forest_quantil_labelling_method(df, quantil):
         returns = df['Close'].pct_change()
-
-        df['TARGET'] = np.qcut(returns, q=quantil, labels=range(5)) #0,1,2,3,4 = labels'names
+        df['TARGET'] = np.quantile(returns, q=quantil, labels=range(5)) #0,1,2,3,4 = labels'names
         return
 
     def getTripleBarrierLabels(df):
@@ -103,3 +104,4 @@ class Labbelling_engineer_model_fitting():
         
     def lin_reg_labelling_method(df):
         return
+rand_forest_quantil_labelling_method(df,quantil)
