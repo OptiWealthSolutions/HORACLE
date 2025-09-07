@@ -47,106 +47,30 @@ class MomentumStrategy():
 
     # --- Features Engineering (1D uniquement) --- 
     def getRSI(self):
-        """✅ RSI corrigé - assurer que c'est une Series 1D"""
-        # S'assurer que Close est une Series pandas, pas un array
-        if isinstance(self.df['Close'], pd.Series):
-            close_series = self.df['Close']
-        else:
-            close_series = pd.Series(self.df['Close'].values, index=self.df.index)
-        
-        self.df['RSI'] = ta.momentum.RSIIndicator(close=close_series, window=14).rsi()
+        #fonciton rsi
+
         return self.df
     
     def PriceMomentum(self):
-        """✅ Price momentum corrigé"""
-        if isinstance(self.df['Close'], pd.Series):
-            close_series = self.df['Close']
-        else:
-            close_series = pd.Series(self.df['Close'].values, index=self.df.index)
-            
-        self.df['PriceMomentum'] = ta.momentum.ROCIndicator(close=close_series, window=12).roc()
         return self.df
     
     def getLagReturns(self):
-        """Features de lag fixes (1D)"""
         for n in self.lags:
             self.df[f'RETURN_LAG_{n}'] = self.df['log_return'].shift(n)
         return self.df
     
     def PriceAccel(self):
-        """Features de vélocité et accélération (1D)"""
         self.df['velocity'] = self.df['log_return']  # Rendement = vélocité
         self.df['acceleration'] = self.df['log_return'].diff()  # Diff du rendement = accélération
         return self.df
     
-    def getBasicPriceFeatures(self):
-        """Features de prix simples (1D)"""
-        # Rendements simples
-        self.df['simple_return'] = self.df['Close'].pct_change()
-        
-        # Position relative dans la barre OHLC
-        self.df['ohlc_position'] = (self.df['Close'] - self.df['Low']) / (self.df['High'] - self.df['Low'])
-        
-        # Gap par rapport à l'ouverture
-        self.df['open_gap'] = (self.df['Open'] / self.df['Close'].shift(1)) - 1
-        
-        # Body de la chandelle
-        self.df['candle_body'] = (self.df['Close'] - self.df['Open']) / self.df['Open']
-        
-        return self.df
-    
-    def getTechnicalIndicators1D(self):
-        """Indicateurs techniques simples (1D)"""
-        # S'assurer que les séries sont 1D
-        close_series = pd.Series(self.df['Close'].values, index=self.df.index)
-        high_series = pd.Series(self.df['High'].values, index=self.df.index)
-        low_series = pd.Series(self.df['Low'].values, index=self.df.index)
-        volume_series = pd.Series(self.df['Volume'].values, index=self.df.index)
-        
-        # MACD line seulement (pas l'histogramme)
-        macd = ta.trend.MACD(close=close_series)
-        self.df['MACD'] = macd.macd()
-        
-        # Stochastic %K
-        self.df['STOCH_K'] = ta.momentum.StochasticOscillator(
-            high=high_series, low=low_series, close=close_series
-        ).stoch()
-        
-        # Williams %R
-        self.df['WILLIAMS_R'] = ta.momentum.WilliamsRIndicator(
-            high=high_series, low=low_series, close=close_series
-        ).williams_r()
-        
-        # Commodity Channel Index
-        self.df['CCI'] = ta.trend.CCIIndicator(
-            high=high_series, low=low_series, close=close_series
-        ).cci()
-        
-        return self.df
-    
-    def getSimpleMovingAverages(self):
-        """MAs simples avec ratios fixes (1D)"""
-        # MA courte et longue fixes
-        self.df['MA_5'] = self.df['Close'].rolling(5).mean()
-        self.df['MA_20'] = self.df['Close'].rolling(20).mean()
-        
-        # Ratios prix/MA (features 1D)
-        self.df['price_to_MA5'] = self.df['Close'] / self.df['MA_5']
-        self.df['price_to_MA20'] = self.df['Close'] / self.df['MA_20']
-        
-        # Pente de la MA (approximation simple)
-        self.df['MA5_slope'] = self.df['MA_5'].diff()
-        self.df['MA20_slope'] = self.df['MA_20'].diff()
-        
-        return self.df
 
     def getFeaturesDataSet(self):
         """Sélection des features 1D uniquement"""
         # Colonnes à exclure
         cols_to_drop = [
-            'Open', 'High', 'Low', 'Volume', 'Close', 'Adj Close',
+            'Open', 'High', 'Low', 'Volume', 'Close',
             'log_return', 'Label',  # Variables cibles/originales
-            'MA_5', 'MA_20'  # MAs intermédiaires (on garde les ratios)
         ]
         
         # Garder seulement les features engineered
@@ -164,7 +88,6 @@ class MomentumStrategy():
     
     #--- Statistical Tests ---
     def testStationarity(self):
-        """Test de stationnarité simplifié"""
         print("\n=== TESTS DE STATIONNARITÉ ===")
         stationary_count = 0
         
@@ -191,7 +114,6 @@ class MomentumStrategy():
         return
     
     def getCorr(self):
-        """Analyse de corrélation"""
         print("\n=== ANALYSE DE CORRÉLATION ===")
         
         # Matrice de corrélation
@@ -274,21 +196,16 @@ class MomentumStrategy():
 
     #--- Label Engineering ---
     def getLabels(self):
-        """✅ Labels corrigés - prédire le futur"""
-        # Threshold adaptatif basé sur volatilité
         vol_21d = self.df['log_return'].rolling(21).std()
         threshold = vol_21d * 0.5  # 0.5 écart-type
         
-        # ✅ CRITIQUE: Utiliser rendement FUTUR
         future_return = self.df['log_return'].shift(-1)  # t+1
         
-        # Labels basés sur le futur
         self.df['Label'] = np.where(
             future_return > threshold, 1,      # UP
             np.where(future_return < -threshold, -1, 0)  # DOWN, NEUTRAL
         )
         
-        # Stats des labels
         label_counts = self.df['Label'].value_counts().sort_index()
         print(f"\n=== DISTRIBUTION DES LABELS ===")
         for label, count in label_counts.items():
@@ -380,13 +297,10 @@ def main():
     
     # Feature Engineering (toutes 1D)
     print("\n1. Feature Engineering 1D...")
-    ms.getRSI()
+    #ms.getRSI()
     ms.PriceMomentum()
     ms.getLagReturns()
     ms.PriceAccel()
-    ms.getBasicPriceFeatures()
-    ms.getTechnicalIndicators1D()
-    ms.getSimpleMovingAverages()
     
     # Dataset features
     print("\n2. Préparation dataset...")
