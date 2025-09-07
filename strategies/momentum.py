@@ -55,9 +55,6 @@ class MomentumStrategy():
         return self.df
     
     def getLagReturns(self):
-        """Compute lagged log returns for each lag in self.lags.
-        This uses log(Close_t / Close_{t-n}) which is the standard lagged log-return.
-        """
         for n in self.lags:
             self.df[f'RETURN_LAG_{n}'] = np.log(self.df['Close'] / self.df['Close'].shift(n))
         return self.df
@@ -97,14 +94,14 @@ class MomentumStrategy():
             print(f"Stationarity test for {col}: {adfuller_result}")
         return
     
-    def getCorr(self):
-        return
+    # def getCorr(self):
+    #     return
     
-    def getFeatureImportance(self):
-        return
+    # def getFeatureImportance(self):
+    #     return
     
-    def getFeatureSelection(self):
-        return
+    # def getFeatureSelection(self):
+    #     return
     #---  labels engineering ---
 
     def getLabels(self):
