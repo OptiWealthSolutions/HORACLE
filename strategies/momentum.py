@@ -28,6 +28,7 @@ class MomentumStrategy():
         df = yf.download(self.ticker, period=self.PERIOD, interval=self.INTERVAL)
         df = df.dropna()
         df['log_return'] = np.log(df['Close'] / df['Close'].shift(1))
+        df['return'] = df['Close'].shift(-self.SHIFT)
         return df
 
     def getDataFrameClean(self):
@@ -103,20 +104,27 @@ class MomentumStrategy():
     # def getFeatureSelection(self):
     #     return
     #---  labels engineering ---
-
     def getLabels(self):
-        thresold = self.df['log_return'].std() * 1.2
-        self.df['Label'] = np.where(self.df['log_return'] > thresold, 1, 
-            np.where(self.df['log_return'] < -thresold, -1, 0))
-        return self.df
+        threshold = self.df['return'].std() * 0.5
+        print(f"Threshold: {threshold}")
+        print(f"Log return range: {self.df['log_return'].min()} to {self.df['log_return'].max()}")
+        
+        self.df['Label'] = np.where(self.df['return'] > threshold, 1, 
+            np.where(self.df['return'] < -threshold, -1, 0))
+
+        print(f"Label distribution:\n{self.df['Label'].value_counts()}")
+        
+        # Ne pas remplacer tout le DataFrame !
+        self.df = self.df['Label'].dropna()
+        self.df.to_csv('labels.csv')  # Sauvegarde tout le DataFrame
+        return self.df['Label'] 
 
     #--- model training ---
     def RandomForest(self):
-        self.df = self.df.dropna(subset=['Label'])
         self.df_features = self.df_features.loc[self.df.index.intersection(self.df_features.index)]
-        X = self.df_features.drop('Label', axis=1, errors='ignore').values   
-        y = self.df['Label'].values
-
+        X = self.df_features.values 
+        y = self.df.values
+        print(self.df)
         scaler = StandardScaler()
         X_scaled = scaler.fit_transform(X)
 
@@ -134,6 +142,7 @@ class MomentumStrategy():
             random_state=42
         )
         PrimaryModel.fit(X_train, y_train)
+        
         y_pred = PrimaryModel.predict(X_test)
 
         #metrics
@@ -156,7 +165,7 @@ def main():
     #ms.get12MonthPriceMomentum()
     ms.getVol()
     ms.getFeaturesDataSet()
-    ms.testStationarity()
+    #ms.testStationarity()
     #ms.getCorr()
     #ms.getFeatureImportance()
     #ms.getFeatureSelection()
