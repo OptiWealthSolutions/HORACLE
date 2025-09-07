@@ -100,8 +100,12 @@ class ForexMLPipeline:
         for period in periods:
             df[f'sma_{period}'] = df['Close'].rolling(window=period).mean()
             df[f'ema_{period}'] = df['Close'].ewm(span=period).mean()
-            # Price relative to MA
-            df[f'close_sma_{period}_ratio'] = df['Close'] / df[f'sma_{period}']
+            # Price relative to MA, robust if df['Close'] is a DataFrame
+            df[f'close_sma_{period}_ratio'] = (
+                df['Close'].iloc[:, 0] / df[f'sma_{period}']
+                if isinstance(df['Close'], pd.DataFrame)
+                else df['Close'] / df[f'sma_{period}']
+            )
         return df
     
     def _add_rsi(self, df: pd.DataFrame, period: int = 14) -> pd.DataFrame:
@@ -109,8 +113,10 @@ class ForexMLPipeline:
         delta = df['Close'].diff()
         gain = delta.where(delta > 0, 0).rolling(window=period).mean()
         loss = (-delta.where(delta < 0, 0)).rolling(window=period).mean()
-        rs = gain / loss
-        df['rsi'] = 100 - (100 / (1 + rs))
+        # Avoid division by zero and NaN
+        rs = gain / loss.replace(0, np.nan)
+        rsi = 100 - (100 / (1 + rs))
+        df['rsi'] = rsi.fillna(50)  # neutral RSI if undefined
         return df
     
     def _add_macd(self, df: pd.DataFrame) -> pd.DataFrame:
@@ -135,7 +141,9 @@ class ForexMLPipeline:
         """Add Stochastic Oscillator"""
         low_k = df['Low'].rolling(window=k_period).min()
         high_k = df['High'].rolling(window=k_period).max()
-        df['stoch_k'] = 100 * ((df['Close'] - low_k) / (high_k - low_k))
+        denom = (high_k - low_k).replace(0, np.nan)
+        stoch_k = 100 * ((df['Close'] - low_k) / denom)
+        df['stoch_k'] = stoch_k.fillna(50)
         df['stoch_d'] = df['stoch_k'].rolling(window=3).mean()
         return df
     
@@ -170,19 +178,27 @@ class ForexMLPipeline:
         if self.features is None:
             return
             
-        self.logger.info("Checking feature stationarity...")
-        non_stationary = []
+        self.logger.info("Checking feature quality...")
+        
+        # Remove features with too many NaN values
+        nan_threshold = 0.5  # Remove if more than 50% NaN
+        features_to_drop = []
         
         for col in self.features.columns:
-            if self.features[col].notna().sum() < 50:  # Skip if too few observations
-                continue
-                
-            stationarity = self.check_stationarity(self.features[col])
-            if not stationarity['is_stationary']:
-                non_stationary.append(col)
+            nan_ratio = self.features[col].isna().sum() / len(self.features)
+            if nan_ratio > nan_threshold:
+                features_to_drop.append(col)
+            elif self.features[col].notna().sum() >= 50:  # Check stationarity if enough data
+                try:
+                    stationarity = self.check_stationarity(self.features[col])
+                    if not stationarity['is_stationary']:
+                        self.logger.debug(f"Non-stationary feature: {col}")
+                except:
+                    self.logger.debug(f"Could not test stationarity for: {col}")
         
-        if non_stationary:
-            self.logger.warning(f"Non-stationary features detected: {non_stationary}")
+        if features_to_drop:
+            self.logger.warning(f"Dropping features with too many NaN: {features_to_drop}")
+            self.features = self.features.drop(columns=features_to_drop)
     
     def create_events(self, threshold: float = 0.005) -> pd.DatetimeIndex:
         """Create events based on price movements (CUSUM filter)"""
@@ -220,18 +236,19 @@ class ForexMLPipeline:
         close = self.data['Close']
         pt, sl = pt_sl
         
-        labels = pd.Series(index=events, dtype=int)
-        
+        labels = pd.Series(dtype=int)
+
         for event_time in events:
             if event_time not in close.index:
                 continue
                 
             # Define time barrier
             end_time = event_time + pd.Timedelta(days=max_holding_period)
-            end_time = min(end_time, close.index[-1])
+            if end_time > close.index[-1]:
+                end_time = close.index[-1]
             
-            # Get price path
-            price_path = close.loc[event_time:end_time]
+            # Ensure alignment: map end_time to available index using ffill
+            price_path = close.loc[event_time:end_time].reindex(close.index, method='ffill').loc[event_time:end_time]
             entry_price = close.loc[event_time]
             
             # Calculate returns
@@ -239,28 +256,22 @@ class ForexMLPipeline:
             
             # Find first barrier hit
             label = 0  # Default: time barrier
-            
             for timestamp, ret in returns.items():
                 if timestamp == event_time:
                     continue
-                    
-                if ret >= pt:  # Profit target hit
+                if ret >= pt:
                     label = 1
                     break
-                elif ret <= -sl:  # Stop loss hit
+                elif ret <= -sl:
                     label = -1
                     break
             
             labels.loc[event_time] = label
         
-        # Convert to multiclass (for stronger signals)
-        # Enhance labels based on magnitude
-        final_labels = labels.copy()
-        
         self.logger.info(f"Created {len(labels)} triple barrier labels")
         self.logger.info(f"Label distribution: {labels.value_counts().to_dict()}")
         
-        return final_labels.dropna()
+        return labels.dropna()
     
     def prepare_training_data(self) -> Tuple[pd.DataFrame, pd.Series]:
         """Prepare aligned features and labels for training"""
@@ -321,14 +332,14 @@ class ForexMLPipeline:
         
         self.primary_model.fit(X_train_scaled, y_train)
         
-        # Time Series Cross Validation
+        # Cross-validation
         tscv_scores = self._time_series_cv(X_train_scaled, y_train)
         
         # Test set evaluation
         y_pred = self.primary_model.predict(X_test_scaled)
         test_accuracy = accuracy_score(y_test, y_pred)
         
-        # Feature importance
+        # Feature importance: align index with features.columns (not scaled)
         feature_importance = pd.Series(
             self.primary_model.feature_importances_,
             index=features.columns
@@ -369,31 +380,23 @@ class ForexMLPipeline:
         if self.primary_model is None:
             raise ValueError("Primary model not trained")
         
-        # Scale features
         features_scaled = self.scaler.transform(features)
-        
-        # Primary model predictions
         primary_pred = self.primary_model.predict(features_scaled)
         primary_proba = self.primary_model.predict_proba(features_scaled)
         
-        # Meta features
         meta_features = pd.DataFrame(index=features.index)
-        
-        # Prediction confidence
         meta_features['max_proba'] = np.max(primary_proba, axis=1)
         meta_features['prediction_entropy'] = -np.sum(
             primary_proba * np.log2(primary_proba + 1e-10), axis=1
         )
+        # Fill NaNs in rolling std with 0
+        meta_features['pred_consistency'] = pd.Series(primary_pred, index=features.index).rolling(5).std().fillna(0)
         
-        # Prediction consistency (rolling window)
-        meta_features['pred_consistency'] = pd.Series(primary_pred, index=features.index).rolling(5).std()
-        
-        # Market regime features
         close = self.data['Close'].reindex(features.index, method='ffill')
-        meta_features['recent_volatility'] = close.pct_change().rolling(20).std()
+        meta_features['recent_volatility'] = close.pct_change().rolling(20).std().fillna(0)
         meta_features['trend_strength'] = (
             close.rolling(10).mean() / close.rolling(30).mean() - 1
-        )
+        ).fillna(0)
         
         return meta_features.dropna()
     

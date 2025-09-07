@@ -6,7 +6,7 @@ from sklearn.metrics import classification_report, confusion_matrix
 import pandas as pd
 import numpy as np
 import yfinance as yf
-import matplotlib.pyplot as plt
+import matplotlib.pyplot as pltxs
 from statsmodels.tsa.stattools import adfuller
 from sklearn.metrics import accuracy_score
 import seaborn as sns
