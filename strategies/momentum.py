@@ -66,13 +66,13 @@ class MomentumStrategy():
         return self.df
     
     def getPct52WeekHigh(self):
-        self.df['52w_high'] = self.df['High'].rolling(window=252).max()
-        self.df['Pct52WeekHigh'] = self.df['Close'] / self.df['52w_high']
+        w_high = self.df['High'].rolling(window=252).max()
+        self.df['Pct52WeekHigh'] = self.df['Close'] / w_high
         return self.df
     
     def getPct52WeekLow(self):
-        self.df['52w_low'] = self.df['Low'].rolling(window=252).min()
-        self.df['Pct52WeekLow'] = self.df['Close'] / self.df['52w_low']
+        w_low = self.df['Low'].rolling(window=252).min()
+        self.df['Pct52WeekLow'] = self.df['Close'] / w_low
         return self.df
     
     def get12MonthPriceMomentum(self):
@@ -147,19 +147,19 @@ class MomentumStrategy():
 def main():
     ms = MomentumStrategy()
     # __init__ already loads and cleans data; now compute features and labels
-    ms.getRSI()
-    ms.PriceMomentum()
+    #ms.getRSI()
+    #ms.PriceMomentum()
     ms.getLagReturns()
     ms.PriceAccel()
     ms.getPct52WeekHigh()
     ms.getPct52WeekLow()
-    ms.get12MonthPriceMomentum()
+    #ms.get12MonthPriceMomentum()
     ms.getVol()
     ms.getFeaturesDataSet()
     ms.testStationarity()
-    ms.getCorr()
-    ms.getFeatureImportance()
-    ms.getFeatureSelection()
+    #ms.getCorr()
+    #ms.getFeatureImportance()
+    #ms.getFeatureSelection()
     ms.getLabels()
     ms.RandomForest()
     return

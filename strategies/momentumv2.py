@@ -223,6 +223,7 @@ class MomentumStrategy():
         # Préparation données
         df_with_labels = self.df.dropna(subset=['Label'])
         
+        
         # Aligner features et labels
         common_idx = df_with_labels.index.intersection(self.df_features.index)
         features_final = self.df_features.loc[common_idx].dropna()
@@ -310,8 +311,8 @@ def main():
     print("\n3. Analyses...")
     ms.testStationarity()
     ms.getCorr()
-    ms.getFeatureImportance()
-    ms.getFeatureSelection()
+    #ms.getFeatureImportance()
+    #ms.getFeatureSelection()
     
     # Labels
     print("\n4. Création labels...")
