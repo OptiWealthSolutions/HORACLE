@@ -1,19 +1,15 @@
-import os
-import sklearn
 from sklearn.ensemble import RandomForestClassifier
 from sklearn.model_selection import TimeSeriesSplit, cross_val_score
 from sklearn.model_selection import train_test_split
 from sklearn.preprocessing import StandardScaler
-from sklearn.metrics import r2_score
 from sklearn.metrics import classification_report, confusion_matrix
 import pandas as pd
 import numpy as np
 import yfinance as yf
 import matplotlib.pyplot as plt
-import statsmodels.api as sm
 from statsmodels.tsa.stattools import adfuller
 from sklearn.metrics import accuracy_score
-from seaborn import heatmap
+import seaborn as sns
 
 #ML workflow :
 #Collect Clean and Validate DATA --> Extract & Engineer Features --> Labelling --> 
@@ -30,7 +26,7 @@ from seaborn import heatmap
 #What problem we want to solve ?
 # We want to predict the future direction and strenght of the price's return for a week & month horizon 
 
-tickerlist = ["EURUSD=X","GBPUSD=X","USDJPY=X","USDCAD=X","AUDUSD=X","NZDUSD=X"]
+TickerList = ["EURUSD=X","GBPUSD=X","USDJPY=X","USDCAD=X","AUDUSD=X","NZDUSD=X"]
 
 # --- Data Loading, Cleaning and processing ---
 def getDataLoad(ticker,period,interval):
@@ -64,7 +60,7 @@ def computeFeatures(df):
     def getSMA(df: pd.DataFrame, period):
             # moving average features
             df[f'Mov_av_{period}'] = df['Close'].rolling(window=period).mean()
-            getDataStandardized(df[f'Mov_av_{period}'])
+            df[f'Mov_av_{period}'] = getDataStandardized(df[f'Mov_av_{period}'])
             return df
 
     def getRSI(df: pd.DataFrame, period):
@@ -112,6 +108,8 @@ def computeFeatures(df):
             .pow(1/lag)
             .sub(1))
             getDataStandardized(df[f'return_{lag}m'])
+        return df
+
     def getVolumeStandardize(df):
         df['Volume'] = getDataStandardized(df['Volume'])
         return df
@@ -122,13 +120,22 @@ def computeFeatures(df):
         df.drop('Low', axis=1, inplace=True)
         df.drop('Open', axis=1, inplace=True)
         return df
-    return Primary_df
+
+    df = getSMA(df, 14)
+    df = getRSI(df, 14)
+    df = getMACD(df)
+    df = getSTOCH(df)
+    df = getMomentumFactors(df, 5)
+    df = getMomentumPeriod(df, 3)
+    df = getVolumeStandardize(df)
+    df = getFeaturesClean(df)
+    return df
 # Multicollinearity 
 #covariance matrix for testing colinearity
 def getCovMatrix(df,featureslist):
     df = df[featureslist].dropna()
     cov_matrix_df = df.cov()
-    seaborn.heatmap(cov_matrix_df, annot=True, cmap='coolwarm')
+    sns.heatmap(cov_matrix_df, annot=True, cmap='coolwarm')
     plt.show()
     return 
 # --- Labelling Engineering ---
@@ -194,6 +201,25 @@ def getTripleBarrierLabels(events, min_ret):
     bins[bins <= -min_return_adj] = -1  # Loss
     bins[(bins < min_return_adj) & (bins > -min_return_adj)] = 0  # Neutral
     
+    return bins
+
+def applyTripleBarrier(df, pt=0.02, sl=0.02, min_ret=0.01):
+    close = df['Close']
+    threshold = 0.01
+    t_events = getEvents(df, threshold)
+    pt_levels = pd.Series(pt, index=t_events)
+    sl_levels = pd.Series(-sl, index=t_events)
+    events = pd.DataFrame(index=t_events)
+    events['pt_level'] = pt_levels
+    events['sl_level'] = sl_levels
+    events['ret'] = 0.0
+    for loc in t_events:
+        t1 = loc + pd.Timedelta(days=5)
+        if t1 > close.index[-1]:
+            t1 = close.index[-1]
+        end_time, label = getSingleBarrier(close, loc, t1, pt_levels, sl_levels)
+        events.at[loc, 'ret'] = close[end_time] / close[loc] - 1
+    bins = getTripleBarrierLabels(events, min_ret)
     return bins
 
 # --- Meta-Labelling ---
@@ -270,10 +296,8 @@ def RandomForestClassifier_(features_df,target):
     X = features_df
     y = target
 
-
-
     #train test split
-    X_train,y_train,X_test,y_test = train_test_split(
+    X_train,X_test,y_train,y_test = train_test_split(
         X,y,test_size=0.2,random_state=42
     )
     
@@ -305,8 +329,6 @@ def RandomForestClassifier_(features_df,target):
     PrimaryModel.score(X_test,y_test)
     
     #metrics
-    r2 = r2_score(y_test,PrimaryModel.predict(X_test))
-    print(f"R2 score: {r2}")
     confusion_matrix_ = confusion_matrix(y_test,PrimaryModel.predict(X_test))
     print(f"Confusion matrix: {confusion_matrix_}")
     classification_report_ = classification_report(y_test,PrimaryModel.predict(X_test))
@@ -321,7 +343,7 @@ def MetaModel(meta_features, events, threshold_profit=0.02):
     MetaLabels = (events['ret'].abs() >= threshold_profit).astype(int)
     
     #train test split
-    X_train,y_train,X_test,y_test = train_test_split(
+    X_train,X_test,y_train,y_test = train_test_split(
         meta_features,MetaLabels,test_size=0.2,random_state=42
     )
     
@@ -347,9 +369,6 @@ def MetaModel(meta_features, events, threshold_profit=0.02):
     MetaModel_.fit(X_train,y_train)
     MetaModel_.score(X_test,y_test)
     
-    #metrics
-    r2 = r2_score(y_test,MetaModel_.predict(X_test))
-    print(f"R2 score: {r2}")
     confusion_matrix_meta = confusion_matrix(y_test,MetaModel_.predict(X_test))
     print(f"Confusion matrix: {confusion_matrix_meta}")
     classification_report_meta = classification_report(y_test,MetaModel_.predict(X_test))
@@ -373,6 +392,17 @@ def MetaModel(meta_features, events, threshold_profit=0.02):
 
 # --- Main function activation ---
 
-if __name__ == "__main__":
+def main(ticker):
+    df = getDataLoad(ticker, period="2y", interval="1d")
+    df = computeFeatures(df)
+    df = df.dropna()
+    bins = applyTripleBarrier(df)
+    bins = bins.loc[df.index.intersection(bins.index)]
+    features = df.loc[bins.index]
+    RandomForestClassifier_(features, bins)
 
-    pass
+if __name__ == "__main__":
+    for el in TickerList:
+        main(el)
+    
+    
