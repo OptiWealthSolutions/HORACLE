@@ -47,11 +47,11 @@ class MomentumStrategy():
 
     # --- features engineering --- 
     def getRSI(self):
-        self.df['RSI'] = ta.momentum.RSIIndicator(close=self.df['Close'], window=14).rsi().to_numpy().reshape(-1)
+        self.df['RSI'] = ta.momentum.RSIIndicator(close=self.df['Close'], window=14).rsi()
         return self.df
     
     def PriceMomentum(self):
-        self.df['PriceMomentum'] = ta.momentum.ROCIndicator(close=self.df['Close'], window=12).roc().to_numpy().reshape(-1)
+        self.df['PriceMomentum'] = ta.momentum.ROCIndicator(close=self.df['Close'], window=12).roc().to_numpy()
         return self.df
     
     def getLagReturns(self):
@@ -79,7 +79,7 @@ class MomentumStrategy():
         return self.df
     
     def get12MonthPriceMomentum(self):
-        self.df['12MonthPriceMomentum'] = ta.momentum.ROCIndicator(close=self.df['Close'], window=12).roc().to_numpy().reshape(-1)
+        self.df['12MonthPriceMomentum'] = ta.momentum.ROCIndicator(close=self.df['Close'], window=12).roc()
         return self.df
     
     def getVol(self):
