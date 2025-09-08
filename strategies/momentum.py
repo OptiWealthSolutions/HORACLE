@@ -8,10 +8,15 @@ import matplotlib.pyplot as plt
 import seaborn as sns
 from sklearn.ensemble import RandomForestClassifier
 from sklearn.preprocessing import StandardScaler
-from sklearn.metrics import classification_report, confusion_matrix, accuracy_score
-import ta
+from sklearn.metrics import accuracy_score, classification_report, confusion_matrix
 from statsmodels.tsa.stattools import adfuller
-from sklearn.metrics import roc_auc_score
+from sklearn.model_selection import TimeSeriesSplit
+from sklearn.metrics import f1_score
+from sklearn.feature_selection import SelectFromModel
+
+import warnings
+warnings.filterwarnings('ignore')
+
 class MomentumStrategy():
     def __init__(self):
         self.ticker = "TSLA"
@@ -20,8 +25,6 @@ class MomentumStrategy():
         self.SHIFT = 5
         self.lags = [6,9,12,15,21]
         self.df = self.getDataLoad()
-
-        # self.std_daily = getDailyVol(self.df)  # Removed as getDailyVol is undefined
 
     # --- Data Loading, Cleaning and processing ---
     def getDataLoad(self):
@@ -88,14 +91,21 @@ class MomentumStrategy():
     def testStationarity(self):
         for col in self.df_features.columns:
             adfuller_result = adfuller(self.df_features[col].dropna())
-            print(f"Stationarity test for {col}: {adfuller_result}")
+            p_value = adfuller_result[1]
+            is_stationary = p_value < 0.05
+            print(f"Stationarity test for {col}: {p_value}", "Stationnaire" if is_stationary else "Non-stationnaire")
         return
     
     def getCorr(self):
+        self.df_features.corr()
+        sns.heatmap(self.df_features.corr(), annot=True)
         return
     
     def getFeatureImportance(self):
-        return
+        feature_importance = self.PrimaryModel.feature_importances_
+        feature_importance = pd.Series(feature_importance, index=self.df_features.columns)
+        print(feature_importance.sort_values(ascending=False, inplace=True))
+        return 
     
     def getFeatureSelection(self):
         return
@@ -162,7 +172,6 @@ class MomentumStrategy():
         self.df['label_hold_days'] = hold_days
         self.df['label_barrier_hit'] = barrier_hit
         self.df['vol_adjustment'] = vol_adj_arr
-        print(self.df)
         return self.df
 
     #--- model training ---
@@ -175,12 +184,12 @@ class MomentumStrategy():
         X_train, X_test, y_train, y_test = train_test_split(X_scaled, y, test_size=0.2, random_state=42)
 
         PrimaryModel =  RandomForestClassifier(
-            n_estimators=300,      # 300 arbres
+            n_estimators=100,      # 300 arbres
             max_depth=10,          # Profondeur max = 10
             #min_samples_split=50,  # Min 50 échantillons pour split
             #min_samples_leaf=20,   # Min 20 échantillons par feuille
             #max_features='sqrt',   # √(nb_features) features par split
-            #bootstrap=True,        # Bootstrap sampling
+            bootstrap=True,        # Bootstrap sampling
             #oob_score=True,        # Out-of-bag score
             class_weight='balanced_subsample', # Équilibrer les classes
             random_state=42
@@ -189,6 +198,15 @@ class MomentumStrategy():
         
         y_pred = PrimaryModel.predict(X_test)
         #mise en place cross-validation
+        tscv = TimeSeriesSplit(n_splits=5)
+        for train_index, test_index in tscv.split(X_scaled):
+            X_train, X_test = X_scaled[train_index], X_scaled[test_index]
+            y_train, y_test = y[train_index], y[test_index]
+            PrimaryModel.fit(X_train, y_train)
+            y_pred = PrimaryModel.predict(X_test)
+            
+        #purging and embargo
+        
         
         
         #grid search
@@ -199,8 +217,8 @@ class MomentumStrategy():
         print(f"Confusion matrix : \n {confusion_matrix_}")
         classification_report_ = classification_report(y_test,PrimaryModel.predict(X_test))
         print(f"Classification report: {classification_report_}")
-        #roc auc
-        #roc_auc_score(y_test, PrimaryModel.predict_proba(X_test)[:, 1])
+        print(accuracy_score(y_test, PrimaryModel.predict(X_test)))
+        print(f1_score(y_test, PrimaryModel.predict(X_test),average="weighted"))
         return
 
 # --- meta featuring --- 
@@ -223,11 +241,11 @@ def main():
     ms.PriceAccel()
     ms.getPct52WeekHigh()
     ms.getPct52WeekLow()
-    ms.get12MonthPriceMomentum()
+    #ms.get12MonthPriceMomentum()
     ms.getVol()
     ms.getFeaturesDataSet()
-    #ms.testStationarity()
-    #ms.getCorr()
+    ms.testStationarity()
+    ms.getCorr()
     #ms.getFeatureImportance()
     #ms.getFeatureSelection()
     ms.getLabels()
