@@ -14,11 +14,11 @@ from statsmodels.tsa.stattools import adfuller
 from sklearn.metrics import roc_auc_score
 class MomentumStrategy():
     def __init__(self):
-        self.ticker = "EURUSD=X"
-        self.PERIOD = "20y"
+        self.ticker = "TSLA"
+        self.PERIOD = "max"
         self.INTERVAL = "1d"
         self.SHIFT = 5
-        self.lags = [1,2,3,6,9,12]
+        self.lags = [6,9,12,15,21]
         self.df = self.getDataLoad()
 
         # self.std_daily = getDailyVol(self.df)  # Removed as getDailyVol is undefined
@@ -27,24 +27,19 @@ class MomentumStrategy():
     def getDataLoad(self):
         df = yf.download(self.ticker, period=self.PERIOD, interval=self.INTERVAL)
         df = df.dropna()
-        
-        # Log return quotidien
-        df['log_return'] = np.log(df['Close'] / df['Close'].shift(1))
-    
-        # Rendement futur sur SHIFT jours
-        df['return'] = (df['Close'].shift(-self.SHIFT) - df['Close']) / df['Close']
-    
-        df = df.dropna()  
         Q1 = df['Close'].quantile(0.15)
         Q3 = df['Close'].quantile(0.85)
         IQR = Q3 - Q1
-
         # Définir les bornes
         lower_bound = Q1 - 1.5 * IQR
         upper_bound = Q3 + 1.5 * IQR
-
         # Filtrer les outliers
-        df_clean = df[(df['Close'] >= lower_bound) & (df['Close'] <= upper_bound)]# supprimer les lignes NaN introduites par shift
+        df = df[(df['Close'] >= lower_bound) & (df['Close'] <= upper_bound)]
+        #log return quotidiens
+        df['log_return'] = np.log(df['Close'] / df['Close'].shift(1))
+        # Rendement futur sur SHIFT jours
+        df['return'] = (df['Close'].shift(-self.SHIFT) - df['Close']) / df['Close']
+        df.dropna()
         return df
 
     # --- features engineering --- 
@@ -63,7 +58,6 @@ class MomentumStrategy():
         return self.df
     
     def PriceAccel(self):
-        self.df['log_return'] = np.log(self.df['Close'] / self.df['Close'].shift(1))
         self.df['velocity'] = self.df['log_return']
         self.df['acceleration'] = self.df['log_return'].diff()    
         return self.df
@@ -87,9 +81,7 @@ class MomentumStrategy():
         return self.df
 
     def getFeaturesDataSet(self):
-        self.df_features = self.df.drop(['High', 'Low', 'Open', 'Volume', 'Close'], axis=1, errors='ignore')
-        self.df_features
-        print(self.df_features)
+        self.df_features = self.df.drop(['High', 'Low', 'Open', 'Volume', 'Close','Return'], axis=1, errors='ignore')
         return self.df_features
     
     #--- statisticals test ---
@@ -109,7 +101,7 @@ class MomentumStrategy():
         return
 
     #---  labels engineering ---
-    def getLabels(self, profit_target=0.01, stop_loss=0.01, max_hold_days=5, volatility_scaling=True):
+    def getLabels(self, profit_target=0.05, stop_loss=0.01, max_hold_days=10, volatility_scaling=True):
         prices = self.df['Close']
         n = len(prices)
         
@@ -170,7 +162,7 @@ class MomentumStrategy():
         self.df['label_hold_days'] = hold_days
         self.df['label_barrier_hit'] = barrier_hit
         self.df['vol_adjustment'] = vol_adj_arr
-
+        print(self.df)
         return self.df
 
     #--- model training ---
@@ -183,23 +175,24 @@ class MomentumStrategy():
         X_train, X_test, y_train, y_test = train_test_split(X_scaled, y, test_size=0.2, random_state=42)
 
         PrimaryModel =  RandomForestClassifier(
-            n_estimators=100,      # 300 arbres
+            n_estimators=300,      # 300 arbres
             max_depth=10,          # Profondeur max = 10
             #min_samples_split=50,  # Min 50 échantillons pour split
             #min_samples_leaf=20,   # Min 20 échantillons par feuille
             #max_features='sqrt',   # √(nb_features) features par split
             #bootstrap=True,        # Bootstrap sampling
             #oob_score=True,        # Out-of-bag score
-            class_weight='balanced', # Équilibrer les classes
+            class_weight='balanced_subsample', # Équilibrer les classes
             random_state=42
         )
         PrimaryModel.fit(X_train, y_train)
         
         y_pred = PrimaryModel.predict(X_test)
         #mise en place cross-validation
-
+        
         
         #grid search
+
         
         #metrics
         confusion_matrix_ = confusion_matrix(y_test,PrimaryModel.predict(X_test))
