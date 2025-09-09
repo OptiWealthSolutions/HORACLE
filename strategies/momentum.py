@@ -38,38 +38,87 @@ class PurgedKFold:
             yield train_idx, test_idx
         return
 
-
 class SampleWeights():
-    def __init__(self,labels,features,timestamps):
-        self.labels = np.array(labels)
+    def __init__(self, labels, features, timestamps):
+        self.labels = pd.Series(labels, index=timestamps)
         self.features = features
-        self.timestamps = timestamps
+        self.timestamps = pd.Series(timestamps)
         self.n_samples = len(labels)
-        self.df = None
-        pass
+        self.df = pd.DataFrame(features, index=timestamps)
+        self.df['labels'] = self.labels
 
-        
+    def getIndMatrix(self, label_endtimes=None):
+        # Crée une matrice indicatrice binaire (samples x time) indiquant les périodes utilisées par chaque échantillon
+        if label_endtimes is None:
+            label_endtimes = self.timestamps
+        molecules = label_endtimes.index
+        all_times = pd.Index([]).union(*[pd.date_range(start, end, freq='D')
+                                         for start, end in zip(molecules, label_endtimes[molecules])])
+        ind_matrix = pd.DataFrame(0, index=molecules, columns=all_times)
+        for sample_id in molecules:
+            start_time = sample_id
+            end_time = label_endtimes[sample_id]
+            time_range = pd.date_range(start_time, end_time, freq='D')
+            ind_matrix.loc[sample_id, time_range] = 1
+        return ind_matrix
+
+    def getAverageUniqueness(self, indicator_matrix):
+        # Calcule l’unicité moyenne pour chaque échantillon sur les périodes utilisées
+        timestamp_usage_count = indicator_matrix.sum(axis=0)
+        uniqueness = pd.Series(index=indicator_matrix.index, dtype=float)
+        for sample_id in indicator_matrix.index:
+            sample_usage = indicator_matrix.loc[sample_id]
+            used_timestamps = sample_usage[sample_usage == 1].index
+            if len(used_timestamps) == 0:
+                uniqueness[sample_id] = 0
+            else:
+                timestamp_uniqueness = 1.0 / timestamp_usage_count[used_timestamps]
+                uniqueness[sample_id] = timestamp_uniqueness.mean()
+        return uniqueness
 
     def getRarity(self):
-        #for return which is the most common the weight is the lowest and for 
-        #the least common the weight is the highest
-        return (self.df['Close'].pct_change().abs())/self.df['Close'].pct_change().abs().sum()
+        # Calcule le poids de rareté basé sur l’amplitude absolue des retours
+        returns = self.df['labels']
+        abs_returns = returns.abs()
+        return abs_returns / abs_returns.sum()
 
-    def getSequentialBootstrap(self):
-        #measures how much info samples contains
-        #the more unique the sample the higher the weight
-        
-        return
+    def getSequentialBootstrap(self, indicator_matrix, sample_length=None, random_state=42):
+        # Pèse chaque échantillon selon son unicité moyenne à travers des bootstraps pondérés
+        np.random.seed(random_state)
+        if sample_length is None:
+            sample_length = indicator_matrix.shape[0]
+        avg_uniqueness = self.getAverageUniqueness(indicator_matrix)
+        probabilities = avg_uniqueness / avg_uniqueness.sum()
+        n_simulations = 10000
+        selection_counts = pd.Series(0, index=indicator_matrix.index)
+        for _ in range(n_simulations):
+            bootstrap_indices = np.random.choice(
+                indicator_matrix.index,
+                size=sample_length,
+                replace=True,
+                p=probabilities
+            )
+            for idx in bootstrap_indices:
+                selection_counts[idx] += 1
+        sample_weights = selection_counts / selection_counts.sum()
+        return sample_weights
 
-    def getRecency(self,decay=0.01):
-        #give a bigger weight to recent informations
-        time_delta = (self.timestamps.max() - self.timestamps).dt.days()
-        weights = np.exp(-decay*time_delta)
-        return weights
+    def getRecency(self, decay=0.01):
+        # Applique une décroissance exponentielle pour valoriser les périodes récentes
+        time_delta = (self.timestamps.max() - self.timestamps).dt.days
+        weights = np.exp(-decay * time_delta)
+        return pd.Series(weights, index=self.timestamps.index) / np.sum(weights)
 
-    def getSampleWeight(self):
-        #apply all the previous methods
-        return
+    def getSampleWeight(self, decay=0.01):
+        # Combine toutes les méthodes (rarete, recence, bootstrap) en un poids global et normalise
+        indicator_matrix = self.getIndMatrix(self.timestamps)
+        rarity_weights = self.getRarity()
+        recency_weights = self.getRecency(decay)
+        sequential_weights = self.getSequentialBootstrap(indicator_matrix)
+        common_index = rarity_weights.index.intersection(recency_weights.index).intersection(sequential_weights.index)
+        combined = rarity_weights.loc[common_index] * recency_weights.loc[common_index] * sequential_weights.loc[common_index]
+        return combined / combined.sum()
+
 
 class MomentumStrategy():
     def __init__(self):
