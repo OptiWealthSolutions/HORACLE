@@ -48,34 +48,34 @@ class SampleWeights():
         self.df['labels'] = self.labels
 
     def getIndMatrix(self, label_endtimes=None):
-        # Crée une matrice indicatrice binaire (samples x time) indiquant les périodes utilisées par chaque échantillon
+        # Vectorisation de la construction de la matrice indicatrice
         if label_endtimes is None:
             label_endtimes = self.timestamps
         molecules = label_endtimes.index
-        all_times = pd.DatetimeIndex([]) 
-        for start, end in zip(molecules, label_endtimes[molecules]):
-            rng = pd.date_range(start, end, freq="D")
-            all_times = all_times.union(rng)
-        ind_matrix = pd.DataFrame(0, index=molecules, columns=all_times)
-        for sample_id in molecules:
-            start_time = sample_id
-            end_time = label_endtimes[sample_id]
-            time_range = pd.date_range(start_time, end_time, freq='D')
-            ind_matrix.loc[sample_id, time_range] = 1
-        return ind_matrix
+        # Récupérer les plages de dates pour tous les échantillons
+        all_ranges = [(start, label_endtimes[start]) for start in molecules]
+        all_times = pd.DatetimeIndex([])
+        for rng in all_ranges:
+            all_times = all_times.union(pd.date_range(*rng, freq="D"))
+        # Création d'un array 2D par broadcasting
+        idx_map = {t:i for i,t in enumerate(all_times)}
+        indicator = np.zeros((len(molecules), len(all_times)), dtype=np.uint8)
+        for sample_idx, (start, end) in enumerate(all_ranges):
+            idx_range = [idx_map[dt] for dt in pd.date_range(start, end, freq="D")]
+            indicator[sample_idx, idx_range] = 1
+        indicator_matrix = pd.DataFrame(indicator, index=molecules, columns=all_times)
+        return indicator_matrix
 
     def getAverageUniqueness(self, indicator_matrix):
-        # Calcule l’unicité moyenne pour chaque échantillon sur les périodes utilisées
-        timestamp_usage_count = indicator_matrix.sum(axis=0)
-        uniqueness = pd.Series(index=indicator_matrix.index, dtype=float)
-        for sample_id in indicator_matrix.index:
-            sample_usage = indicator_matrix.loc[sample_id]
-            used_timestamps = sample_usage[sample_usage == 1].index
-            if len(used_timestamps) == 0:
-                uniqueness[sample_id] = 0
-            else:
-                timestamp_uniqueness = 1.0 / timestamp_usage_count[used_timestamps]
-                uniqueness[sample_id] = timestamp_uniqueness.mean()
+        # Comptage des timestamps
+        timestamp_usage_count = indicator_matrix.sum(axis=0).values  # numpy array
+        # Création d'un masque booléen
+        mask = indicator_matrix.values.astype(bool)
+        # Division par le nombre d’utilisateurs pour chaque timestamp
+        uniqueness_matrix = np.divide(mask, timestamp_usage_count, out=np.zeros_like(mask, dtype=float), where=mask)
+        # Moyenne par sample
+        avg_uniqueness = uniqueness_matrix.sum(axis=1)/(mask.sum(axis=1)+1e-10)
+        uniqueness = pd.Series(avg_uniqueness, index=indicator_matrix.index)
         return uniqueness
 
     def getRarity(self):
@@ -84,24 +84,21 @@ class SampleWeights():
         abs_returns = returns.abs()
         return abs_returns / abs_returns.sum()
 
-    def getSequentialBootstrap(self, indicator_matrix, sample_length=None, random_state=42):
-        # Pèse chaque échantillon selon son unicité moyenne à travers des bootstraps pondérés
+    def getSequentialBootstrap(self, indicator_matrix, sample_length=None, random_state=42, n_simulations=100):
         np.random.seed(random_state)
         if sample_length is None:
-            sample_length = indicator_matrix.shape[0]
+            sample_length = indicator_matrix.shape
         avg_uniqueness = self.getAverageUniqueness(indicator_matrix)
         probabilities = avg_uniqueness / avg_uniqueness.sum()
-        n_simulations = 10000
-        selection_counts = pd.Series(0, index=indicator_matrix.index)
-        for _ in range(n_simulations):
-            bootstrap_indices = np.random.choice(
-                indicator_matrix.index,
-                size=sample_length,
-                replace=True,
-                p=probabilities
-            )
-            for idx in bootstrap_indices:
-                selection_counts[idx] += 1
+        # Tirages en bloc
+        draws = np.random.choice(
+            len(indicator_matrix.index),
+            size=sample_length * n_simulations,
+            replace=True,
+            p=probabilities.values
+        )
+        counts = np.bincount(draws, minlength=len(indicator_matrix.index))
+        selection_counts = pd.Series(counts, index=indicator_matrix.index)
         sample_weights = selection_counts / selection_counts.sum()
         return sample_weights
 
@@ -125,7 +122,7 @@ class SampleWeights():
 class MomentumStrategy():
     def __init__(self):
         self.ticker = "TSLA"
-        self.PERIOD = "max"
+        self.PERIOD = "5y"
         self.INTERVAL = "1d"
         self.SHIFT = 5
         self.lags = [12]
@@ -331,6 +328,7 @@ class MomentumStrategy():
         self.df['label_barrier_hit'] = barrier_hit
         self.df['vol_adjustment'] = vol_adj_arr
         return self.df
+
     def getSampleWeight(self, decay=0.01):
         labels = self.df['Target']
         features = self.df_features
@@ -339,6 +337,7 @@ class MomentumStrategy():
         weights = sw.getSampleWeight(decay=decay)
         self.df['SampleWeight'] = weights
         return weights
+
     #--- model training ---
     def PrimaryModel(self, n_splits=5):
         X = self.df_features.values 
@@ -382,7 +381,6 @@ class MomentumStrategy():
     # --- meta labelling ---
     def metaLabeling():
         # on veut 1 si le trade etait en profit et 0 sinon
-
         return
     def getRealPos(self):
 
@@ -397,9 +395,15 @@ class MomentumStrategy():
 
         return
 
+    def getSharpeRatio(self):
+        return
+    
+
     # --- meta model ---
     def MetaModel(self):
         return 
+    
+
 
 def main():
     ms = MomentumStrategy()
