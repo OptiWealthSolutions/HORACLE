@@ -17,6 +17,45 @@ from sklearn.decomposition import PCA
 import warnings
 warnings.filterwarnings('ignore')
 from sklearn.decomposition import PCA
+
+class PurgedKFold:
+    def __init__(self, n_splits=5, embargo_pct=0.):
+        self.n_splits = n_splits
+        self.embargo_pct = embargo_pct
+
+    def split(self, X, y=None, groups=None):
+        n_samples = X.shape[0] #nb de sample grace a la taille de la df_features
+        test_size = n_samples // self.n_splits
+        embargo = int(n_samples * self.embargo_pct)
+
+        for i in range(self.n_splits):
+            test_start = i * test_size
+            test_end = test_start + test_size
+            test_idx = np.arange(test_start, test_end)
+            train_idx = np.arange(0, test_start)
+            if test_end + embargo < n_samples:
+                train_idx = np.concatenate([train_idx, np.arange(test_end + embargo, n_samples)])
+            yield train_idx, test_idx
+        return
+
+
+class SampleWeights():
+    def __init__(self):
+        pass
+    def getRarity(self):
+        #for return which is the most common the weight is the lowest and for 
+        #the least common the weight is the highest
+        return
+    def getUniqueness(self):
+        #measures how much info samples contains
+        return
+    def getRecency(self):
+        #give a bigger weight to recent informations
+        return
+    def getSampleWeight(self):
+        #apply all the previous methods
+        return
+
 class MomentumStrategy():
     def __init__(self):
         self.ticker = "TSLA"
@@ -25,6 +64,7 @@ class MomentumStrategy():
         self.SHIFT = 5
         self.lags = [12]
         self.df = self.getDataLoad()
+        self.meta_df = pd.DataFrame()
 
     # --- Data Loading, Cleaning and processing ---
     def getDataLoad(self):
@@ -83,17 +123,12 @@ class MomentumStrategy():
         self.df_features = self.df.drop(['High', 'Low', 'Open', 'Volume', 'Close','Return','Velocity'], axis=1, errors='ignore')
         return self.df_features
     
-    def getFAMAFRENCH(self):
-        
-        return
-
     def getMacroData(self):
 
         import pandas_datareader.data as web
 
         # Télécharger DXY et VIX via yfinance
         dxy = yf.download("DX-Y.NYB", period=self.PERIOD, interval="1d")['Close']
-        vix = yf.download("^VIX", period=self.PERIOD, interval="1d")['Close']
 
         # Télécharger TWI via FRED
         try:
@@ -105,7 +140,6 @@ class MomentumStrategy():
 
         # Réindexer et forward-fill
         self.df['DXY'] = dxy.reindex(self.df.index, method='ffill')
-        self.df['VIX'] = vix.reindex(self.df.index, method='ffill')
         self.df['TWI'] = twi.reindex(self.df.index, method='ffill')
 
         return self.df
@@ -231,15 +265,18 @@ class MomentumStrategy():
         self.df['label_barrier_hit'] = barrier_hit
         self.df['vol_adjustment'] = vol_adj_arr
         return self.df
-
+    def getSampleWeight(self):
+        
+        return
     #--- model training ---
     def PrimaryModel(self, n_splits=5):
         X = self.df_features.values 
         y = self.df['Target'].values
         scaler = StandardScaler()
         X_scaled = scaler.fit_transform(X)
-
-        tscv = TimeSeriesSplit(n_splits=n_splits)
+        #herite de la classe PurgerKfold pour faire une 
+        # cross-validation temporelle avec embargo et purge
+        tscv = PurgedKFold(n_splits=n_splits, embargo_pct=0.01)
         scores = []
         reports = []
         cms = []
@@ -247,7 +284,7 @@ class MomentumStrategy():
         for train_idx, test_idx in tscv.split(X_scaled):
             X_train, X_test = X_scaled[train_idx], X_scaled[test_idx]
             y_train, y_test = y[train_idx], y[test_idx]
-
+        #model tuning and hyper parameter
             model = RandomForestClassifier(
                 n_estimators=100,
                 max_depth=10,
@@ -262,26 +299,31 @@ class MomentumStrategy():
             reports.append(classification_report(y_test, y_pred, output_dict=True))
             cms.append(confusion_matrix(y_test, y_pred))
 
-        results = {
-            "mean_accuracy": np.mean(scores),
-        }
-        print(results)
-        return results
+        print(f"\nmean_accuracy : {round((np.mean(scores)*100),2)} %")
+        
+        return np.mean(scores)
 
     # --- meta featuring --- 
     def getEntropy():
+
         return
 
     # --- meta labelling ---
     def metaLabeling():
+        # on veut 1 si le trade etait en profit et 0 sinon
+
         return
     def getRealPos(self):
+
         return
     def getRealNeg(self):
+        
         return
     def getRealNeutral(self):
+
         return
     def getRatio(self):
+
         return
 
     # --- meta model ---
@@ -294,7 +336,6 @@ def main():
     ms.PriceMomentum()
     ms.getLagReturns()
     ms.PriceAccel()
-    #ms.getPct52WeekHigh()
     ms.getPct52WeekLow()
     ms.getVol()
     ms.getMacroData()
