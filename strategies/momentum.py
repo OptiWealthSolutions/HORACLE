@@ -52,8 +52,10 @@ class SampleWeights():
         if label_endtimes is None:
             label_endtimes = self.timestamps
         molecules = label_endtimes.index
-        all_times = pd.Index([]).union(*[pd.date_range(start, end, freq='D')
-                                         for start, end in zip(molecules, label_endtimes[molecules])])
+        all_times = pd.DatetimeIndex([]) 
+        for start, end in zip(molecules, label_endtimes[molecules]):
+            rng = pd.date_range(start, end, freq="D")
+            all_times = all_times.union(rng)
         ind_matrix = pd.DataFrame(0, index=molecules, columns=all_times)
         for sample_id in molecules:
             start_time = sample_id
@@ -329,9 +331,14 @@ class MomentumStrategy():
         self.df['label_barrier_hit'] = barrier_hit
         self.df['vol_adjustment'] = vol_adj_arr
         return self.df
-    def getSampleWeight(self):
-        
-        return
+    def getSampleWeight(self, decay=0.01):
+        labels = self.df['Target']
+        features = self.df_features
+        timestamps = self.df.index
+        sw = SampleWeights(labels, features, timestamps)
+        weights = sw.getSampleWeight(decay=decay)
+        self.df['SampleWeight'] = weights
+        return weights
     #--- model training ---
     def PrimaryModel(self, n_splits=5):
         X = self.df_features.values 
@@ -397,19 +404,28 @@ class MomentumStrategy():
 def main():
     ms = MomentumStrategy()
     ms.getRSI()
+    print("RSI implemented")
     ms.PriceMomentum()
+    print("PriceMomentum implemented")
     ms.getLagReturns()
+    print("LagReturns implemented")
     ms.PriceAccel()
+    print("PriceAccel implemented")
     ms.getPct52WeekLow()
+    print("Pct52WeekLow implemented")
     ms.getVol()
+    print("Vol implemented")
     ms.getMacroData()
+    print("MacroData implemented")
     ms.getFeaturesDataSet()
-    ms.getPCATest()
-    ms.getFeatureImportance()
-    ms.testStationarity()
+    print("FeaturesDataSet implemented")
     ms.getLabels()
+    print("Labels implemented")
+    ms.getSampleWeight()
+    print("SampleWeight implemented")
     ms.PrimaryModel()
-    return  
+    print("PrimaryModel Finished")
+    return
 
 if __name__ == "__main__":
     main()
