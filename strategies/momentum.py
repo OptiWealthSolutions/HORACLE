@@ -5,6 +5,7 @@ from sklearn.model_selection import train_test_split
 import yfinance as yf
 import sklearn as sk
 import matplotlib.pyplot as plt
+from sklearn.metrics import RocCurveDisplay
 import seaborn as sns
 from sklearn.ensemble import RandomForestClassifier
 from sklearn.preprocessing import StandardScaler
@@ -17,6 +18,7 @@ from sklearn.decomposition import PCA
 import warnings
 warnings.filterwarnings('ignore')
 from sklearn.decomposition import PCA
+from sklearn.metrics import f1_score
 
 class PurgedKFold:
     def __init__(self, n_splits=5, embargo_pct=0.):
@@ -140,6 +142,7 @@ class MomentumStrategy():
         self.lags = [12]
         self.df = self.getDataLoad()
         self.meta_df = pd.DataFrame()
+
 
     # --- Data Loading, Cleaning and processing ---
     def getDataLoad(self):
@@ -278,9 +281,40 @@ class MomentumStrategy():
 
     
     #---  labels engineering ---
+    def getSignalSide(self):
+        """
+        Détermine la direction du signal (1 = Long, -1 = Short, 0 = Neutre)
+        Basé sur votre logique de momentum
+        """
+        # Exemple de logique pour déterminer le side
+        # Vous pouvez adapter selon vos critères
+        conditions = []
+        
+        # Signal long si momentum positif ET RSI pas en surachat
+        long_signal = (self.df['PriceMomentum'] > 0) & (self.df['RSI'] < 70)
+        
+        # Signal short si momentum négatif ET RSI pas en survente  
+        short_signal = (self.df['PriceMomentum'] < 0) & (self.df['RSI'] > 30)
+        
+        # Créer la colonne side
+        self.df['side'] = 0  # Par défaut neutre
+        self.df.loc[long_signal, 'side'] = 1   # Long
+        self.df.loc[short_signal, 'side'] = -1  # Short
+        
+        return self.df['side']
+
     def getLabels(self, profit_target=0.05, stop_loss=0.01, max_hold_days=10, volatility_scaling=True):
+        """
+        Version corrigée qui gère les positions LONG et SHORT
+        """
         prices = self.df['Close']
         n = len(prices)
+        
+        # S'assurer qu'on a la colonne side
+        if 'side' not in self.df.columns:
+            self.getSignalSide()
+        
+        sides = self.df['side'].values
         
         # Calcul de la volatilité roulante si scaling activé
         if volatility_scaling:
@@ -289,26 +323,54 @@ class MomentumStrategy():
         
         prices_array = prices.values
         labels = np.zeros(n)
-        entry_dates, exit_dates, entry_prices, exit_prices, returns_pct, hold_days, barrier_hit, vol_adj_arr = [], [], [], [], [], [], [], []
+        entry_dates, exit_dates, entry_prices, exit_prices = [], [], [], []
+        returns_pct, hold_days, barrier_hit, vol_adj_arr = [], [], [], []
 
-
-        def _find_first_barrier_hit(prices, entry_idx, profit_target, stop_loss, max_hold):
+        def _find_first_barrier_hit_with_side(prices, entry_idx, profit_target, stop_loss, max_hold, side):
+            """
+            Version corrigée qui tient compte de la direction (side)
+            """
+            if side == 0:  # Pas de signal
+                return 0, min(entry_idx + max_hold, len(prices) - 1)
+                
             entry_price = prices[entry_idx]
             end_idx = min(entry_idx + max_hold, len(prices) - 1)
+            
             for i in range(entry_idx + 1, end_idx + 1):
-                ret = (prices[i] - entry_price) / entry_price
-                if ret >= profit_target:
-                    return 1, i
-                elif ret <= -stop_loss:
-                    return -1, i
-            return 0, end_idx
+                # Calcul du return raw
+                raw_ret = (prices[i] - entry_price) / entry_price
+                
+                # CRUCIAL: Ajuster le return selon la direction
+                # Pour short: on gagne quand le prix baisse (raw_ret négatif devient positif)
+                adjusted_ret = raw_ret * side
+                
+                # Vérifier les barrières sur le return ajusté
+                if adjusted_ret >= profit_target:
+                    return 1, i  # Profit hit
+                elif adjusted_ret <= -stop_loss:
+                    return -1, i  # Stop loss hit
+                    
+            return 0, end_idx  # Time barrier hit
 
         for i in range(n):
+            side = sides[i]
+            
+            # Skip si pas de signal
+            if side == 0:
+                labels[i] = 0
+                entry_dates.append(prices.index[i])
+                exit_dates.append(prices.index[i])
+                entry_prices.append(prices_array[i])
+                exit_prices.append(prices_array[i])
+                returns_pct.append(0)
+                hold_days.append(0)
+                barrier_hit.append('No Signal')
+                vol_adj_arr.append(1.0)
+                continue
+                
             # Ajustement des barrières selon volatilité
             if volatility_scaling:
-    # Remplissage des NaN
                 vol_filled = vol.fillna(method='bfill').fillna(method='ffill')
-                # Forcer la valeur scalaire
                 vol_value = float(vol_filled.iloc[i])
                 vol_adj = max(vol_value / 0.02, 0.5)
                 profit_adj = profit_target * vol_adj
@@ -318,27 +380,37 @@ class MomentumStrategy():
                 loss_adj = stop_loss
                 vol_adj = 1.0
 
-            label, exit_idx = _find_first_barrier_hit(prices_array, i, profit_adj, loss_adj, max_hold_days)
+            # Utiliser la nouvelle fonction avec side
+            label, exit_idx = _find_first_barrier_hit_with_side(
+                prices_array, i, profit_adj, loss_adj, max_hold_days, side
+            )
+            
             labels[i] = label
             entry_dates.append(prices.index[i])
             exit_dates.append(prices.index[exit_idx])
             entry_prices.append(prices_array[i])
             exit_prices.append(prices_array[exit_idx])
-            returns_pct.append((prices_array[exit_idx] - prices_array[i]) / prices_array[i])
+            
+            # IMPORTANT: Return ajusté par la direction pour le stockage
+            raw_return = (prices_array[exit_idx] - prices_array[i]) / prices_array[i]
+            adjusted_return = raw_return * side
+            returns_pct.append(adjusted_return)
+            
             hold_days.append(exit_idx - i)
             barrier_hit.append(['Time', 'Profit', 'Loss'][label + 1])
             vol_adj_arr.append(vol_adj)
 
-        # Création du DataFrame final
+        # Mise à jour du DataFrame
         self.df['Target'] = labels
         self.df['label_entry_date'] = entry_dates
         self.df['label_exit_date'] = exit_dates
         self.df['label_entry_price'] = entry_prices
         self.df['label_exit_price'] = exit_prices
-        self.df['label_return'] = returns_pct
+        self.df['label_return'] = returns_pct  # Maintenant ajusté par direction
         self.df['label_hold_days'] = hold_days
         self.df['label_barrier_hit'] = barrier_hit
         self.df['vol_adjustment'] = vol_adj_arr
+        
         return self.df
 
     def getSampleWeight(self, decay=0.01):
@@ -354,6 +426,7 @@ class MomentumStrategy():
     def PrimaryModel(self, n_splits=5):
         X = self.df_features.values 
         y = self.df['Target'].values
+        self.df['Target'].to_csv('target.csv')
         sample_weights = self.df['SampleWeight'].values  # poids calculés
 
         scaler = StandardScaler()
@@ -385,14 +458,35 @@ class MomentumStrategy():
             cms.append(confusion_matrix(y_test, y_pred))
 
         print(f"\nmean_accuracy : {round((np.mean(scores)*100),2)} %")
-        
-        return np.mean(scores)
+        #Metrics
+        f1_score_weighted = f1_score(y_test, y_pred, average='weighted')
+        print(f"f1_score_weighted : {round(f1_score_weighted*100,2)} %")
+        self.meta_df= pd.DataFrame(model.predict_proba(X_test))
+        print(self.meta_df)
+        return self.meta_df
 
     # --- meta featuring --- 
-    def getEntropy():
+    def getEntropy(self):
+        probabilities = self.meta_df.values
+        # Éviter log(0) en ajoutant un epsilon
+        epsilon = 1e-10
+        probabilities = np.clip(probabilities, epsilon, 1 - epsilon)
+        # Calcul de l'entropie : -sum(p * log(p))
+        entropy = -np.sum(probabilities * np.log(probabilities), axis=1)
+        self.df['prediction_entropy'] = entropy
+        return entropy
 
-        return
-
+    def getMaxProbability(self):
+        max_probs = np.max(self.meta_df.values, axis=1)
+        self.df['max_probability'] = max_probs
+        return max_probs
+    
+    def getMarginConfidence(self):
+        probs = self.meta_df.values
+        sorted_probs = np.sort(probs, axis=1)
+        margin = sorted_probs[:, -1] - sorted_probs[:, -2]  # Plus haute - 2ème plus haute
+        self.df['margin_confidence'] = margin
+        return margin
     # --- meta labelling ---
     def metaLabeling():
         # on veut 1 si le trade etait en profit et 0 sinon
@@ -438,6 +532,8 @@ def main():
     print("MacroData implemented")
     ms.getFeaturesDataSet()
     print("FeaturesDataSet Created")
+    ms.getSignalSide()
+    print("SignalSide Created")
     ms.getLabels()
     print("Labels Created")
     ms.getSampleWeight()
