@@ -13,7 +13,7 @@ from statsmodels.tsa.stattools import adfuller
 from sklearn.model_selection import TimeSeriesSplit
 from sklearn.metrics import f1_score
 from sklearn.feature_selection import SelectFromModel
-
+from sklearn.decomposition import PCA
 import warnings
 warnings.filterwarnings('ignore')
 
@@ -33,14 +33,10 @@ class MomentumStrategy():
         Q1 = df['Close'].quantile(0.15)
         Q3 = df['Close'].quantile(0.85)
         IQR = Q3 - Q1
-        # Définir les bornes
         lower_bound = Q1 - 1.5 * IQR
         upper_bound = Q3 + 1.5 * IQR
-        # Filtrer les outliers
         df = df[(df['Close'] >= lower_bound) & (df['Close'] <= upper_bound)]
-        #log return quotidiens
         df['log_return'] = np.log(df['Close'] / df['Close'].shift(1))
-        # Rendement futur sur SHIFT jours
         df['return'] = (df['Close'].shift(-self.SHIFT) - df['Close']) / df['Close']
         df.dropna()
         return df
@@ -95,17 +91,19 @@ class MomentumStrategy():
             is_stationary = p_value < 0.05
             print(f"Stationarity test for {col}: {p_value}", "Stationnaire" if is_stationary else "Non-stationnaire")
         return
-    
+    def getColinearity(self):
+        X = self.df_features.dropna().select_dtypes(include=[float, int])
+        cond_number = np.linalg.cond(X)
+        print("Condition number:", cond_number)
+        return cond_number
+
     def getCorr(self):
         self.df_features.corr()
         sns.heatmap(self.df_features.corr(), annot=True)
         return
-    
+
     def getFeatureImportance(self):
-        feature_importance = self.PrimaryModel.feature_importances_
-        feature_importance = pd.Series(feature_importance, index=self.df_features.columns)
-        print(feature_importance.sort_values(ascending=False, inplace=True))
-        return 
+        return  
     
     def getFeatureSelection(self):
         return
@@ -175,7 +173,7 @@ class MomentumStrategy():
         return self.df
 
     #--- model training ---
-    def RandomForest(self):
+    def PrimaryModel(self):
         X = self.df_features.values 
         y = self.df['Target'].values
         scaler = StandardScaler()
@@ -184,14 +182,10 @@ class MomentumStrategy():
         X_train, X_test, y_train, y_test = train_test_split(X_scaled, y, test_size=0.2, random_state=42)
 
         PrimaryModel =  RandomForestClassifier(
-            n_estimators=100,      # 300 arbres
-            max_depth=10,          # Profondeur max = 10
-            #min_samples_split=50,  # Min 50 échantillons pour split
-            #min_samples_leaf=20,   # Min 20 échantillons par feuille
-            #max_features='sqrt',   # √(nb_features) features par split
-            bootstrap=True,        # Bootstrap sampling
-            #oob_score=True,        # Out-of-bag score
-            class_weight='balanced_subsample', # Équilibrer les classes
+            n_estimators=100,      
+            max_depth=10,          
+            bootstrap=True,        
+            class_weight='balanced_subsample', 
             random_state=42
         )
         PrimaryModel.fit(X_train, y_train)
@@ -200,11 +194,13 @@ class MomentumStrategy():
         #mise en place cross-validation
         tscv = TimeSeriesSplit(n_splits=5)
         for train_index, test_index in tscv.split(X_scaled):
+            df_acccurancy = pd.DataFrame()
             X_train, X_test = X_scaled[train_index], X_scaled[test_index]
             y_train, y_test = y[train_index], y[test_index]
             PrimaryModel.fit(X_train, y_train)
             y_pred = PrimaryModel.predict(X_test)
-            
+            df_acccurancy['accuracy'] = accuracy_score(y_test, y_pred)
+            print(f"Accuracy: {accuracy_score(y_test, y_pred)}\n")
         #purging and embargo
         
         
@@ -214,24 +210,32 @@ class MomentumStrategy():
         
         #metrics
         confusion_matrix_ = confusion_matrix(y_test,PrimaryModel.predict(X_test))
-        print(f"Confusion matrix : \n {confusion_matrix_}")
-        classification_report_ = classification_report(y_test,PrimaryModel.predict(X_test))
-        print(f"Classification report: {classification_report_}")
+        print(f"Confusion matrix : \n {confusion_matrix_}\n")
+        #classification_report_ = classification_report(y_test,PrimaryModel.predict(X_test))
+        #print(f"Classification report: {classification_report_}")
         print(accuracy_score(y_test, PrimaryModel.predict(X_test)))
         print(f1_score(y_test, PrimaryModel.predict(X_test),average="weighted"))
         return
 
-# --- meta featuring --- 
-def getEntropy():
-    return
+    # --- meta featuring --- 
+    def getEntropy():
+        return
 
-# --- meta labelling ---
-def metaLabeling():
-    return
+    # --- meta labelling ---
+    def metaLabeling():
+        return
+    def getRealPos(self):
+        return
+    def getRealNeg(self):
+        return
+    def getRealNeutral(self):
+        return
+    def getRatio(self):
+        return
 
-
-# --- meta model ---
-
+    # --- meta model ---
+    def MetaModel(self):
+        return 
 
 def main():
     ms = MomentumStrategy()
@@ -241,15 +245,13 @@ def main():
     ms.PriceAccel()
     ms.getPct52WeekHigh()
     ms.getPct52WeekLow()
-    #ms.get12MonthPriceMomentum()
     ms.getVol()
     ms.getFeaturesDataSet()
+    ms.getFeatureImportance()
     ms.testStationarity()
-    ms.getCorr()
-    #ms.getFeatureImportance()
-    #ms.getFeatureSelection()
+    ms.getColinearity()
     ms.getLabels()
-    ms.RandomForest()
+    ms.PrimaryModel()
     return
 
 if __name__ == "__main__":
