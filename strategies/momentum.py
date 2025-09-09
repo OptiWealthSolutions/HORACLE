@@ -142,6 +142,7 @@ class MomentumStrategy():
         self.lags = [12]
         self.df = self.getDataLoad()
         self.meta_df = pd.DataFrame()
+        self.meta_features_df = pd.DataFrame()
 
 
     # --- Data Loading, Cleaning and processing ---
@@ -196,13 +197,8 @@ class MomentumStrategy():
     def getVol(self):
         self.df['MonthlyVol'] = self.df['Close'].pct_change().rolling(window=20).std()
         return self.df
-
-    def getFeaturesDataSet(self):
-        self.df_features = self.df.drop(['High', 'Low', 'Open', 'Volume', 'Close','Return','Velocity'], axis=1, errors='ignore')
-        return self.df_features
-    
+        
     def getMacroData(self):
-
         import pandas_datareader.data as web
 
         # Télécharger DXY et VIX via yfinance
@@ -219,73 +215,16 @@ class MomentumStrategy():
         # Réindexer et forward-fill
         self.df['DXY'] = dxy.reindex(self.df.index, method='ffill')
         self.df['TWI'] = twi.reindex(self.df.index, method='ffill')
-
         return self.df
 
-    #--- statisticals test ---
-    def testStationarity(self):
-        for col in self.df_features.columns:
-            adfuller_result = adfuller(self.df_features[col].dropna())
-            p_value = adfuller_result[1]
-            is_stationary = p_value < 0.05
-        return
+    def getFeaturesDataSet(self):
+        self.df_features = self.df.drop(['High', 'Low', 'Open', 'Volume', 'Close','Return','Velocity'], axis=1, errors='ignore')
+        return self.df_features
 
-    def getCorr(self):
-        self.df_features.corr()
-        sns.heatmap(self.df_features.corr(), annot=True)
-        return
 
-    def getFeatureImportance(self):
-        return  
-    
-    def getFeatureSelection(self):
-        return
-
-    def getPCATest(self):
-        # Données propres (sans NaN)
-        X = self.df_features.dropna()
-        print(f"Shape originale: {X.shape}")
-        
-        # Standardisation (obligatoire pour PCA)
-        scaler = StandardScaler()
-        X_scaled = scaler.fit_transform(X)
-        
-        # PCA pour garder 95% de la variance
-        pca = PCA(n_components=0.95)
-        X_pca = pca.fit_transform(X_scaled)
-        
-        print(f"Shape après PCA: {X_pca.shape}")
-        print(f"Réduction: {X.shape[1]} -> {X_pca.shape[1]} features")
-        print(f"Variance expliquée: {pca.explained_variance_ratio_.sum():.3f}")
-        
-        # Top composantes
-        print(f"\nTop 5 composantes (% variance):")
-        for i, var_exp in enumerate(pca.explained_variance_ratio_[:5], 1):
-            print(f"PC{i}: {var_exp:.3f} ({var_exp*100:.1f}%)")
-        
-        # Contribution des features originales aux premières composantes
-        components_df = pd.DataFrame(
-            pca.components_[:3].T,  # 3 premières composantes
-            columns=['PC1', 'PC2', 'PC3'],
-            index=X.columns
-        )
-        
-        print(f"\nContribution des features aux 3 premières composantes:")
-        for col in ['PC1', 'PC2', 'PC3']:
-            print(f"\n{col} - Top contributors:")
-            top_contrib = components_df[col].abs().sort_values(ascending=False).head(3)
-            for feature, contrib in top_contrib.items():
-                print(f"  {feature}: {contrib:.3f}")
-        
-        return pca, X_pca, scaler
-
-    
-    #---  labels engineering ---
+    #--- labels engineering ---
     def getSignalSide(self):
-        """
-        Détermine la direction du signal (1 = Long, -1 = Short, 0 = Neutre)
-        Basé sur votre logique de momentum
-        """
+
         # Exemple de logique pour déterminer le side
         # Vous pouvez adapter selon vos critères
         conditions = []
@@ -304,9 +243,6 @@ class MomentumStrategy():
         return self.df['side']
 
     def getLabels(self, profit_target=0.05, stop_loss=0.01, max_hold_days=10, volatility_scaling=True):
-        """
-        Version corrigée qui gère les positions LONG et SHORT
-        """
         prices = self.df['Close']
         n = len(prices)
         
@@ -327,9 +263,6 @@ class MomentumStrategy():
         returns_pct, hold_days, barrier_hit, vol_adj_arr = [], [], [], []
 
         def _find_first_barrier_hit_with_side(prices, entry_idx, profit_target, stop_loss, max_hold, side):
-            """
-            Version corrigée qui tient compte de la direction (side)
-            """
             if side == 0:  # Pas de signal
                 return 0, min(entry_idx + max_hold, len(prices) - 1)
                 
@@ -410,7 +343,7 @@ class MomentumStrategy():
         self.df['label_hold_days'] = hold_days
         self.df['label_barrier_hit'] = barrier_hit
         self.df['vol_adjustment'] = vol_adj_arr
-        
+        print(self.df)
         return self.df
 
     def getSampleWeight(self, decay=0.01):
@@ -473,45 +406,68 @@ class MomentumStrategy():
         probabilities = np.clip(probabilities, epsilon, 1 - epsilon)
         # Calcul de l'entropie : -sum(p * log(p))
         entropy = -np.sum(probabilities * np.log(probabilities), axis=1)
-        self.df['prediction_entropy'] = entropy
-        return entropy
+        self.meta_features_df['prediction_entropy'] = entropy 
+        return 
 
     def getMaxProbability(self):
         max_probs = np.max(self.meta_df.values, axis=1)
-        self.df['max_probability'] = max_probs
-        return max_probs
+        self.meta_features_df['max_probability'] = max_probs 
+        return 
     
     def getMarginConfidence(self):
         probs = self.meta_df.values
         sorted_probs = np.sort(probs, axis=1)
         margin = sorted_probs[:, -1] - sorted_probs[:, -2]  # Plus haute - 2ème plus haute
-        self.df['margin_confidence'] = margin
+        self.meta_features_df['margin_confidence'] = margin
         return margin
-    # --- meta labelling ---
-    def metaLabeling():
-        # on veut 1 si le trade etait en profit et 0 sinon
-        return
-    def getRealPos(self):
-
-        return
-    def getRealNeg(self):
-        
-        return
-    def getRealNeutral(self):
-
-        return
-    def getRatio(self):
-
-        return
-
-    def getSharpeRatio(self):
-        return
     
-
-    # --- meta model ---
-    def MetaModel(self):
+    def getMetaFeaturesDf(self):
+        print(self.meta_features_df)
+        return self.meta_features_df
+        
+    # --- meta labelling ---
+    def metaLabeling(self):
+        # Condition 1: Le modèle principal a prédit un signal (non neutre)
+        model_signal = self.df['Target'] != 0
+        # Condition 2: Le trade était réellement profitable
+        actual_profitable = self.df['label_return'] > 0
+        # Meta-label: 1 si signal ET profitable, 0 sinon
+        meta_labels = (model_signal & actual_profitable).astype(int)
+        self.meta_df['meta_label'] = meta_labels
+        self.meta_df.dropna()
         return 
     
+    def MetaModel(self):
+        X = self.meta_features_df.values
+        y = self.meta_df['meta_label'].values
+        
+        # Split temporel
+        split_point = int(len(X) * 0.7)
+        X_train, X_test = X[:split_point], X[split_point:]
+        y_train, y_test = y[:split_point], y[split_point:]
+        
+        # Modèle meta (plus simple que le modèle principal)
+        from sklearn.ensemble import GradientBoostingClassifier
+        meta_model = GradientBoostingClassifier(
+            n_estimators=50,
+            max_depth=3,
+            learning_rate=0.1,
+            random_state=42
+        )
+        
+        # Entraînement
+        meta_model.fit(X_train, y_train)
+        
+        # Prédictions
+        meta_predictions = meta_model.predict_proba(X_test)[:, 1]
+        self.meta_df.loc[X_test.index, 'meta_prediction'] = meta_predictions
+        
+        # Évaluation
+        from sklearn.metrics import roc_auc_score
+        auc_score = roc_auc_score(y_test, meta_predictions)
+        print(f"Meta-model AUC: {auc_score:.3f}")
+        
+        return meta_model, meta_predictions
 
 
 def main():
@@ -540,6 +496,18 @@ def main():
     print("SampleWeight Created")
     ms.PrimaryModel()
     print("PrimaryModel Finished")
+    ms.getEntropy()
+    print("Entropy implemented")
+    ms.getMaxProbability()
+    print("MaxProbability implemented")
+    ms.getMarginConfidence()
+    print("MarginConfidence implemented")
+    ms.getMetaFeaturesDf()
+    print("MetaFeaturesDf implemented")
+    ms.metaLabeling()
+    print("MetaLabeling implemented")
+    ms.MetaModel()
+    print("MetaModel implemented")
     return
 
 if __name__ == "__main__":
