@@ -40,18 +40,33 @@ class PurgedKFold:
 
 
 class SampleWeights():
-    def __init__(self):
+    def __init__(self,labels,features,timestamps):
+        self.labels = np.array(labels)
+        self.features = features
+        self.timestamps = timestamps
+        self.n_samples = len(labels)
+        self.df = None
         pass
+
+        
+
     def getRarity(self):
         #for return which is the most common the weight is the lowest and for 
         #the least common the weight is the highest
-        return
-    def getUniqueness(self):
+        return (self.df['Close'].pct_change().abs())/self.df['Close'].pct_change().abs().sum()
+
+    def getSequentialBootstrap(self):
         #measures how much info samples contains
+        #the more unique the sample the higher the weight
+        
         return
-    def getRecency(self):
+
+    def getRecency(self,decay=0.01):
         #give a bigger weight to recent informations
-        return
+        time_delta = (self.timestamps.max() - self.timestamps).dt.days()
+        weights = np.exp(-decay*time_delta)
+        return weights
+
     def getSampleWeight(self):
         #apply all the previous methods
         return
