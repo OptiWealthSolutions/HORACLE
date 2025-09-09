@@ -132,9 +132,10 @@ class SampleWeights():
 
 class MomentumStrategy():
     def __init__(self):
+        #list of yahoo finance ticker --> 
         self.ticker = "TSLA"
-        self.PERIOD = "10y"
-        self.INTERVAL = "1mo"
+        self.PERIOD = "20y"
+        self.INTERVAL = "1d"
         self.SHIFT = 5
         self.lags = [12]
         self.df = self.getDataLoad()
@@ -351,8 +352,6 @@ class MomentumStrategy():
 
     #--- model training ---
     def PrimaryModel(self, n_splits=5):
-        print(self.df_features)
-        print(self.df)
         X = self.df_features.values 
         y = self.df['Target'].values
         sample_weights = self.df['SampleWeight'].values  # poids calculés
@@ -365,7 +364,7 @@ class MomentumStrategy():
         scores = []
         reports = []
         cms = []
-
+        #gris search CV
         for train_idx, test_idx in tscv.split(X_scaled):
             X_train, X_test = X_scaled[train_idx], X_scaled[test_idx]
             y_train, y_test = y[train_idx], y[test_idx]
@@ -438,11 +437,11 @@ def main():
     ms.getMacroData()
     print("MacroData implemented")
     ms.getFeaturesDataSet()
-    print("FeaturesDataSet implemented")
+    print("FeaturesDataSet Created")
     ms.getLabels()
-    print("Labels implemented")
+    print("Labels Created")
     ms.getSampleWeight()
-    print("SampleWeight implemented")
+    print("SampleWeight Created")
     ms.PrimaryModel()
     print("PrimaryModel Finished")
     return
