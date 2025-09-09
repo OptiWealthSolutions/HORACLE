@@ -16,14 +16,14 @@ from sklearn.feature_selection import SelectFromModel
 from sklearn.decomposition import PCA
 import warnings
 warnings.filterwarnings('ignore')
-
+from sklearn.decomposition import PCA
 class MomentumStrategy():
     def __init__(self):
         self.ticker = "TSLA"
         self.PERIOD = "max"
         self.INTERVAL = "1d"
         self.SHIFT = 5
-        self.lags = [6,9,12,15,21]
+        self.lags = [12]
         self.df = self.getDataLoad()
 
     # --- Data Loading, Cleaning and processing ---
@@ -80,22 +80,43 @@ class MomentumStrategy():
         return self.df
 
     def getFeaturesDataSet(self):
-        self.df_features = self.df.drop(['High', 'Low', 'Open', 'Volume', 'Close','Return'], axis=1, errors='ignore')
+        self.df_features = self.df.drop(['High', 'Low', 'Open', 'Volume', 'Close','Return','Velocity'], axis=1, errors='ignore')
         return self.df_features
     
+    def getFAMAFRENCH(self):
+        
+        return
+
+    def getMacroData(self):
+
+        import pandas_datareader.data as web
+
+        # Télécharger DXY et VIX via yfinance
+        dxy = yf.download("DX-Y.NYB", period=self.PERIOD, interval="1d")['Close']
+        vix = yf.download("^VIX", period=self.PERIOD, interval="1d")['Close']
+
+        # Télécharger TWI via FRED
+        try:
+            twi = web.DataReader("DTWEXBGS", "fred")
+            twi = twi.resample("D").last()
+            twi = twi['DTWEXBGS']
+        except:
+            twi = pd.Series(index=self.df.index, data=np.nan)
+
+        # Réindexer et forward-fill
+        self.df['DXY'] = dxy.reindex(self.df.index, method='ffill')
+        self.df['VIX'] = vix.reindex(self.df.index, method='ffill')
+        self.df['TWI'] = twi.reindex(self.df.index, method='ffill')
+
+        return self.df
+
     #--- statisticals test ---
     def testStationarity(self):
         for col in self.df_features.columns:
             adfuller_result = adfuller(self.df_features[col].dropna())
             p_value = adfuller_result[1]
             is_stationary = p_value < 0.05
-            print(f"Stationarity test for {col}: {p_value}", "Stationnaire" if is_stationary else "Non-stationnaire")
         return
-    def getColinearity(self):
-        X = self.df_features.dropna().select_dtypes(include=[float, int])
-        cond_number = np.linalg.cond(X)
-        print("Condition number:", cond_number)
-        return cond_number
 
     def getCorr(self):
         self.df_features.corr()
@@ -108,6 +129,45 @@ class MomentumStrategy():
     def getFeatureSelection(self):
         return
 
+    def getPCATest(self):
+        # Données propres (sans NaN)
+        X = self.df_features.dropna()
+        print(f"Shape originale: {X.shape}")
+        
+        # Standardisation (obligatoire pour PCA)
+        scaler = StandardScaler()
+        X_scaled = scaler.fit_transform(X)
+        
+        # PCA pour garder 95% de la variance
+        pca = PCA(n_components=0.95)
+        X_pca = pca.fit_transform(X_scaled)
+        
+        print(f"Shape après PCA: {X_pca.shape}")
+        print(f"Réduction: {X.shape[1]} -> {X_pca.shape[1]} features")
+        print(f"Variance expliquée: {pca.explained_variance_ratio_.sum():.3f}")
+        
+        # Top composantes
+        print(f"\nTop 5 composantes (% variance):")
+        for i, var_exp in enumerate(pca.explained_variance_ratio_[:5], 1):
+            print(f"PC{i}: {var_exp:.3f} ({var_exp*100:.1f}%)")
+        
+        # Contribution des features originales aux premières composantes
+        components_df = pd.DataFrame(
+            pca.components_[:3].T,  # 3 premières composantes
+            columns=['PC1', 'PC2', 'PC3'],
+            index=X.columns
+        )
+        
+        print(f"\nContribution des features aux 3 premières composantes:")
+        for col in ['PC1', 'PC2', 'PC3']:
+            print(f"\n{col} - Top contributors:")
+            top_contrib = components_df[col].abs().sort_values(ascending=False).head(3)
+            for feature, contrib in top_contrib.items():
+                print(f"  {feature}: {contrib:.3f}")
+        
+        return pca, X_pca, scaler
+
+    
     #---  labels engineering ---
     def getLabels(self, profit_target=0.05, stop_loss=0.01, max_hold_days=10, volatility_scaling=True):
         prices = self.df['Close']
@@ -173,49 +233,40 @@ class MomentumStrategy():
         return self.df
 
     #--- model training ---
-    def PrimaryModel(self):
+    def PrimaryModel(self, n_splits=5):
         X = self.df_features.values 
         y = self.df['Target'].values
         scaler = StandardScaler()
         X_scaled = scaler.fit_transform(X)
 
-        X_train, X_test, y_train, y_test = train_test_split(X_scaled, y, test_size=0.2, random_state=42)
+        tscv = TimeSeriesSplit(n_splits=n_splits)
+        scores = []
+        reports = []
+        cms = []
 
-        PrimaryModel =  RandomForestClassifier(
-            n_estimators=100,      
-            max_depth=10,          
-            bootstrap=True,        
-            class_weight='balanced_subsample', 
-            random_state=42
-        )
-        PrimaryModel.fit(X_train, y_train)
-        
-        y_pred = PrimaryModel.predict(X_test)
-        #mise en place cross-validation
-        tscv = TimeSeriesSplit(n_splits=5)
-        for train_index, test_index in tscv.split(X_scaled):
-            df_acccurancy = pd.DataFrame()
-            X_train, X_test = X_scaled[train_index], X_scaled[test_index]
-            y_train, y_test = y[train_index], y[test_index]
-            PrimaryModel.fit(X_train, y_train)
-            y_pred = PrimaryModel.predict(X_test)
-            df_acccurancy['accuracy'] = accuracy_score(y_test, y_pred)
-            print(f"Accuracy: {accuracy_score(y_test, y_pred)}\n")
-        #purging and embargo
-        
-        
-        
-        #grid search
+        for train_idx, test_idx in tscv.split(X_scaled):
+            X_train, X_test = X_scaled[train_idx], X_scaled[test_idx]
+            y_train, y_test = y[train_idx], y[test_idx]
 
-        
-        #metrics
-        confusion_matrix_ = confusion_matrix(y_test,PrimaryModel.predict(X_test))
-        print(f"Confusion matrix : \n {confusion_matrix_}\n")
-        #classification_report_ = classification_report(y_test,PrimaryModel.predict(X_test))
-        #print(f"Classification report: {classification_report_}")
-        print(accuracy_score(y_test, PrimaryModel.predict(X_test)))
-        print(f1_score(y_test, PrimaryModel.predict(X_test),average="weighted"))
-        return
+            model = RandomForestClassifier(
+                n_estimators=100,
+                max_depth=10,
+                class_weight='balanced',
+                random_state=42
+            )
+
+            model.fit(X_train, y_train)
+            y_pred = model.predict(X_test)
+
+            scores.append(accuracy_score(y_test, y_pred))
+            reports.append(classification_report(y_test, y_pred, output_dict=True))
+            cms.append(confusion_matrix(y_test, y_pred))
+
+        results = {
+            "mean_accuracy": np.mean(scores),
+        }
+        print(results)
+        return results
 
     # --- meta featuring --- 
     def getEntropy():
@@ -243,16 +294,17 @@ def main():
     ms.PriceMomentum()
     ms.getLagReturns()
     ms.PriceAccel()
-    ms.getPct52WeekHigh()
+    #ms.getPct52WeekHigh()
     ms.getPct52WeekLow()
     ms.getVol()
+    ms.getMacroData()
     ms.getFeaturesDataSet()
+    ms.getPCATest()
     ms.getFeatureImportance()
     ms.testStationarity()
-    ms.getColinearity()
     ms.getLabels()
     ms.PrimaryModel()
-    return
+    return  
 
 if __name__ == "__main__":
     main()
