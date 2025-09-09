@@ -40,90 +40,101 @@ class PurgedKFold:
 
 class SampleWeights():
     def __init__(self, labels, features, timestamps):
+        # Aligner correctement index et timestamps
+        self.timestamps = pd.Series(timestamps, index=timestamps)
         self.labels = pd.Series(labels, index=timestamps)
         self.features = features
-        self.timestamps = pd.Series(timestamps)
         self.n_samples = len(labels)
         self.df = pd.DataFrame(features, index=timestamps)
         self.df['labels'] = self.labels
 
     def getIndMatrix(self, label_endtimes=None):
-        # Vectorisation de la construction de la matrice indicatrice
         if label_endtimes is None:
             label_endtimes = self.timestamps
         molecules = label_endtimes.index
-        # Récupérer les plages de dates pour tous les échantillons
         all_ranges = [(start, label_endtimes[start]) for start in molecules]
-        all_times = pd.DatetimeIndex([])
-        for rng in all_ranges:
-            all_times = all_times.union(pd.date_range(*rng, freq="D"))
-        # Création d'un array 2D par broadcasting
-        idx_map = {t:i for i,t in enumerate(all_times)}
+
+        # Créer un DatetimeIndex unique pour toutes les périodes
+        all_times = pd.date_range(self.timestamps.min(), self.timestamps.max(), freq='D')
         indicator = np.zeros((len(molecules), len(all_times)), dtype=np.uint8)
+        time_pos = {dt: idx for idx, dt in enumerate(all_times)}
+
         for sample_idx, (start, end) in enumerate(all_ranges):
-            idx_range = [idx_map[dt] for dt in pd.date_range(start, end, freq="D")]
-            indicator[sample_idx, idx_range] = 1
-        indicator_matrix = pd.DataFrame(indicator, index=molecules, columns=all_times)
-        return indicator_matrix
+            if pd.isna(start) or pd.isna(end):
+                continue
+            rng = pd.date_range(start, end, freq='D')
+            valid_idx = [time_pos[dt] for dt in rng if dt in time_pos]
+            if valid_idx:
+                indicator[sample_idx, valid_idx] = 1
+
+        # S'assurer qu'aucune ligne n'est vide
+        indicator[indicator.sum(axis=1) == 0, 0] = 1
+        return pd.DataFrame(indicator, index=molecules, columns=all_times)
 
     def getAverageUniqueness(self, indicator_matrix):
-        # Comptage des timestamps
-        timestamp_usage_count = indicator_matrix.sum(axis=0).values  # numpy array
-        # Création d'un masque booléen
+        timestamp_usage_count = indicator_matrix.sum(axis=0).values
         mask = indicator_matrix.values.astype(bool)
-        # Division par le nombre d’utilisateurs pour chaque timestamp
-        uniqueness_matrix = np.divide(mask, timestamp_usage_count, out=np.zeros_like(mask, dtype=float), where=mask)
-        # Moyenne par sample
-        avg_uniqueness = uniqueness_matrix.sum(axis=1)/(mask.sum(axis=1)+1e-10)
-        uniqueness = pd.Series(avg_uniqueness, index=indicator_matrix.index)
-        return uniqueness
+        uniqueness_matrix = np.divide(
+            mask, 
+            timestamp_usage_count,
+            out=np.zeros_like(mask, dtype=float),
+            where=timestamp_usage_count > 0
+        )
+        avg_uniqueness = uniqueness_matrix.sum(axis=1) / (mask.sum(axis=1) + 1e-10)
+        return pd.Series(avg_uniqueness, index=indicator_matrix.index)
 
     def getRarity(self):
-        # Calcule le poids de rareté basé sur l’amplitude absolue des retours
         returns = self.df['labels']
         abs_returns = returns.abs()
+        if abs_returns.sum() == 0:
+            return pd.Series(np.ones(len(returns))/len(returns), index=returns.index)
         return abs_returns / abs_returns.sum()
 
     def getSequentialBootstrap(self, indicator_matrix, sample_length=None, random_state=42, n_simulations=100):
         np.random.seed(random_state)
+        n_samples = indicator_matrix.shape[0]
         if sample_length is None:
-            sample_length = indicator_matrix.shape
+            sample_length = n_samples
         avg_uniqueness = self.getAverageUniqueness(indicator_matrix)
         probabilities = avg_uniqueness / avg_uniqueness.sum()
-        # Tirages en bloc
-        draws = np.random.choice(
-            len(indicator_matrix.index),
-            size=sample_length * n_simulations,
+
+        all_choices = np.random.choice(
+            n_samples,
+            size=n_simulations * sample_length,
             replace=True,
             p=probabilities.values
-        )
-        counts = np.bincount(draws, minlength=len(indicator_matrix.index))
-        selection_counts = pd.Series(counts, index=indicator_matrix.index)
-        sample_weights = selection_counts / selection_counts.sum()
+        ).reshape(n_simulations, sample_length)
+
+        counts = np.bincount(all_choices.ravel(), minlength=n_samples)
+        sample_weights = pd.Series(counts, index=indicator_matrix.index)
+        sample_weights /= sample_weights.sum() if sample_weights.sum() > 0 else 1
         return sample_weights
 
     def getRecency(self, decay=0.01):
-        # Applique une décroissance exponentielle pour valoriser les périodes récentes
         time_delta = (self.timestamps.max() - self.timestamps).dt.days
         weights = np.exp(-decay * time_delta)
-        return pd.Series(weights, index=self.timestamps.index) / np.sum(weights)
+        return pd.Series(weights, index=self.timestamps.index) / weights.sum()
 
     def getSampleWeight(self, decay=0.01):
-        # Combine toutes les méthodes (rarete, recence, bootstrap) en un poids global et normalise
         indicator_matrix = self.getIndMatrix(self.timestamps)
         rarity_weights = self.getRarity()
         recency_weights = self.getRecency(decay)
         sequential_weights = self.getSequentialBootstrap(indicator_matrix)
-        common_index = rarity_weights.index.intersection(recency_weights.index).intersection(sequential_weights.index)
-        combined = rarity_weights.loc[common_index] * recency_weights.loc[common_index] * sequential_weights.loc[common_index]
-        return combined / combined.sum()
 
+        common_index = rarity_weights.index.intersection(recency_weights.index).intersection(sequential_weights.index)
+        combined = (
+            rarity_weights.loc[common_index].fillna(0) *
+            recency_weights.loc[common_index].fillna(0) *
+            sequential_weights.loc[common_index].fillna(0)
+        )
+        combined /= combined.sum() if combined.sum() > 0 else 1
+        return combined
 
 class MomentumStrategy():
     def __init__(self):
         self.ticker = "TSLA"
-        self.PERIOD = "5y"
-        self.INTERVAL = "1d"
+        self.PERIOD = "10y"
+        self.INTERVAL = "1mo"
         self.SHIFT = 5
         self.lags = [12]
         self.df = self.getDataLoad()
@@ -340,8 +351,12 @@ class MomentumStrategy():
 
     #--- model training ---
     def PrimaryModel(self, n_splits=5):
+        print(self.df_features)
+        print(self.df)
         X = self.df_features.values 
         y = self.df['Target'].values
+        sample_weights = self.df['SampleWeight'].values  # poids calculés
+
         scaler = StandardScaler()
         X_scaled = scaler.fit_transform(X)
         #herite de la classe PurgerKfold pour faire une 
@@ -354,6 +369,7 @@ class MomentumStrategy():
         for train_idx, test_idx in tscv.split(X_scaled):
             X_train, X_test = X_scaled[train_idx], X_scaled[test_idx]
             y_train, y_test = y[train_idx], y[test_idx]
+            w_train = sample_weights[train_idx]
         #model tuning and hyper parameter
             model = RandomForestClassifier(
                 n_estimators=100,
@@ -362,7 +378,7 @@ class MomentumStrategy():
                 random_state=42
             )
 
-            model.fit(X_train, y_train)
+            model.fit(X_train, y_train,sample_weight=w_train)
             y_pred = model.predict(X_test)
 
             scores.append(accuracy_score(y_test, y_pred))
