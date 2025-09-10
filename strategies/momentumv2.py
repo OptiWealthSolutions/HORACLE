@@ -30,19 +30,68 @@ class MomentumStrategy():
         df['log_return'] = np.log(df['Close'] / df['Close'].shift(1))
         return df
 
-    def getDataFrameClean(self):
-        """Nettoyage minimal des outliers extrêmes"""
-        df = self.df.dropna()
+    def getDataFrameClean(self, z_threshold: float = 4.0, iqr_multiplier: float = 3.0) -> pd.DataFrame:
+        """
+        Clean the DataFrame by handling outliers using both Z-score and IQR methods.
         
-        # Seulement les outliers très extrêmes (±4 sigma)
-        returns_std = df['log_return'].std()
-        returns_mean = df['log_return'].mean()
+        Args:
+            z_threshold: Threshold for Z-score outlier detection (default: 4.0)
+            iqr_multiplier: Multiplier for IQR range (default: 3.0)
+            
+        Returns:
+            Cleaned DataFrame with outliers removed
+        """
+        if self.df.empty:
+            raise ValueError("Input DataFrame is empty")
+            
+        df = self.df.copy()
         
-        lower_bound = returns_mean - 4 * returns_std
-        upper_bound = returns_mean + 4 * returns_std
+        # 1. Calculate basic statistics
+        log_returns = df['log_return'].dropna()
+        if len(log_returns) < 2:
+            raise ValueError("Insufficient data points for cleaning")
+            
+        # 2. Z-score based outlier detection
+        z_scores = np.abs((log_returns - log_returns.mean()) / log_returns.std())
         
-        df_clean = df[(df['log_return'] >= lower_bound) & (df['log_return'] <= upper_bound)]
-        print(f"Données: {len(df)} -> {len(df_clean)} (après nettoyage)")
+        # 3. IQR based outlier detection
+        Q1 = log_returns.quantile(0.25)
+        Q3 = log_returns.quantile(0.75)
+        IQR = Q3 - Q1
+        iqr_lower = Q1 - iqr_multiplier * IQR
+        iqr_upper = Q3 + iqr_multiplier * IQR
+        
+        # 4. Combine both methods (point is outlier if detected by either method)
+        is_outlier = (
+            (z_scores > z_threshold) |
+            (log_returns < iqr_lower) |
+            (log_returns > iqr_upper)
+        )
+        
+        # 5. Print diagnostics
+        n_outliers = is_outlier.sum()
+        pct_outliers = n_outliers / len(log_returns) * 100
+        
+        print(f"\n=== DATA CLEANING REPORT ===")
+        print(f"Original data points: {len(df)}")
+        print(f"Outliers detected: {n_outliers} ({pct_outliers:.2f}%)")
+        print(f"Data points after cleaning: {len(df) - n_outliers}")
+        
+        if pct_outliers > 10:  # More than 10% outliers might indicate data issues
+            print("\nWARNING: High percentage of outliers detected!")
+            print("Consider investigating data quality or adjusting thresholds.")
+        
+        # 6. Remove outliers and return
+        clean_idx = ~df.index.isin(log_returns[is_outlier].index)
+        df_clean = df[clean_idx].copy()
+        
+        # 7. Ensure we have enough data left
+        if len(df_clean) < 100:  # Arbitrary minimum threshold
+            raise ValueError(
+                f"Too many outliers removed. Only {len(df_clean)} points remain. "
+                "Adjust thresholds or check data quality."
+            )
+            
         return df_clean
 
     # --- Features Engineering (1D uniquement) --- 

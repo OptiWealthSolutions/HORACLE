@@ -19,7 +19,8 @@ import warnings
 warnings.filterwarnings('ignore')
 from sklearn.decomposition import PCA
 from sklearn.metrics import f1_score
-
+from sklearn.metrics import roc_auc_score
+from sklearn.ensemble import GradientBoostingClassifier
 class PurgedKFold:
     def __init__(self, n_splits=5, embargo_pct=0.):
         self.n_splits = n_splits
@@ -224,11 +225,11 @@ class MomentumStrategy():
 
     #--- labels engineering ---
     def getSignalSide(self):
-
+        # augmenter la complexité de la logique de signal
         # Exemple de logique pour déterminer le side
         # Vous pouvez adapter selon vos critères
         conditions = []
-        
+        # threshold ?
         # Signal long si momentum positif ET RSI pas en surachat
         long_signal = (self.df['PriceMomentum'] > 0) & (self.df['RSI'] < 70)
         
@@ -242,7 +243,12 @@ class MomentumStrategy():
         
         return self.df['side']
 
-    def getLabels(self, profit_target=0.05, stop_loss=0.01, max_hold_days=10, volatility_scaling=True):
+    def getLabels(self, max_hold_days=10, volatility_scaling=True,ratio=3):
+        #atr based profit_target and stop_loss
+        rolling_std = self.df['Close'].pct_change().rolling(window=20).std()
+        stop_loss = rolling_std * 2
+        profit_target = ratio * stop_loss
+        
         prices = self.df['Close']
         n = len(prices)
         
@@ -424,10 +430,11 @@ class MomentumStrategy():
     def getMetaFeaturesDf(self):
         print(self.meta_features_df)
         return self.meta_features_df
-        
+
     # --- meta labelling ---
     def metaLabeling(self):
         # Condition 1: Le modèle principal a prédit un signal (non neutre)
+        self.meta_df = pd.DataFrame(index=self.df.index)
         model_signal = self.df['Target'] != 0
         # Condition 2: Le trade était réellement profitable
         actual_profitable = self.df['label_return'] > 0
@@ -442,12 +449,12 @@ class MomentumStrategy():
         y = self.meta_df['meta_label'].values
         
         # Split temporel
-        split_point = int(len(X) * 0.7)
+        split_point = int(len(X) * 0.8)
         X_train, X_test = X[:split_point], X[split_point:]
         y_train, y_test = y[:split_point], y[split_point:]
         
         # Modèle meta (plus simple que le modèle principal)
-        from sklearn.ensemble import GradientBoostingClassifier
+        
         meta_model = GradientBoostingClassifier(
             n_estimators=50,
             max_depth=3,
@@ -463,7 +470,7 @@ class MomentumStrategy():
         self.meta_df.loc[X_test.index, 'meta_prediction'] = meta_predictions
         
         # Évaluation
-        from sklearn.metrics import roc_auc_score
+        
         auc_score = roc_auc_score(y_test, meta_predictions)
         print(f"Meta-model AUC: {auc_score:.3f}")
         
