@@ -7,3 +7,4 @@ sc_high_risk = []
 commodities_list = ["XAU", "XAG", "XPT", "CL=F", "GC=F"] #gold, titani, silver, platinum, oil, gas
 currencies_list = ["EURUSD", "GBPUSD", "USDJPY", "USDCHF", "USDCAD"]
 
+teststocksList = ["AAPL", "MSFT", "AMZN", "TSLA", "META"]
