@@ -253,11 +253,26 @@ else:
         
         df_portfolio['prix_actuel'] = current_prices
     
-    # Calcul des P&L
-    df_portfolio['valeur_achat'] = df_portfolio['montant'] * df_portfolio['prix_achat'] + df_portfolio['frais']
+    # Calcul des P&L prenant en compte les ventes partielles et les frais
+    df_portfolio['valeur_achat'] = np.where(
+        df_portfolio['montant'] > 0,
+        df_portfolio['montant'] * df_portfolio['prix_achat'] + df_portfolio['frais'],
+        0.0
+    )
     df_portfolio['valeur_actuelle'] = df_portfolio['montant'] * df_portfolio['prix_actuel']
-    df_portfolio['pnl_absolu'] = df_portfolio['valeur_actuelle'] - df_portfolio['valeur_achat']
-    df_portfolio['pnl_pct'] = (df_portfolio['pnl_absolu'] / df_portfolio['valeur_achat'] * 100).round(2)
+    # Pour les achats (montant > 0): valeur_actuelle - valeur_achat
+    # Pour les ventes (montant < 0): -montant * (prix_actuel - prix_achat) - frais
+    df_portfolio['pnl_absolu'] = np.where(
+        df_portfolio['montant'] > 0,
+        df_portfolio['valeur_actuelle'] - df_portfolio['valeur_achat'],
+        -df_portfolio['montant'] * (df_portfolio['prix_actuel'] - df_portfolio['prix_achat']) - df_portfolio['frais']
+    )
+    # Pour le pourcentage, utiliser la valeur absolue de valeur_achat pour les ventes
+    df_portfolio['pnl_pct'] = np.where(
+        df_portfolio['valeur_achat'] != 0,
+        (df_portfolio['pnl_absolu'] / np.abs(df_portfolio['valeur_achat']) * 100).round(2),
+        0.0
+    )
     
     # Métriques de performance
     metrics = calculate_performance_metrics(df_portfolio)
