@@ -37,9 +37,9 @@ def load_portfolio_data():
             df['date_achat'] = pd.to_datetime(df['date_achat'])
             return df
         except:
-            return pd.DataFrame(columns=['symbole', 'nom', 'classe_actif', 'quantite', 'prix_achat', 'date_achat'])
+            return pd.DataFrame(columns=['symbole', 'nom', 'classe_actif', 'montant', 'prix_achat', 'date_achat', 'frais'])
     else:
-        return pd.DataFrame(columns=['symbole', 'nom', 'classe_actif', 'quantite', 'prix_achat', 'date_achat'])
+        return pd.DataFrame(columns=['symbole', 'nom', 'classe_actif', 'montant', 'prix_achat', 'date_achat', 'frais'])
 
 def save_portfolio_data(df):
     """Sauvegarde les données du portfolio dans le fichier CSV"""
@@ -71,8 +71,8 @@ def calculate_performance_metrics(df_portfolio):
     if df_portfolio.empty:
         return {}
     
-    total_invested = (df_portfolio['quantite'] * df_portfolio['prix_achat']).sum()
-    total_current_value = (df_portfolio['quantite'] * df_portfolio['prix_actuel']).sum()
+    total_invested = (df_portfolio['montant'] * df_portfolio['prix_achat'] + df_portfolio['frais']).sum()
+    total_current_value = (df_portfolio['montant'] * df_portfolio['prix_actuel']).sum()
     total_pnl = total_current_value - total_invested
     total_pnl_pct = (total_pnl / total_invested * 100) if total_invested > 0 else 0
     
@@ -98,13 +98,14 @@ with st.sidebar:
         symbole = st.text_input("Symbole (ex: AAPL, BTC-USD)", key="symbole_input")
         nom = st.text_input("Nom de l'actif", key="nom_input")
         classe_actif = st.selectbox("Classe d'actif", ASSET_CLASSES, key="classe_input")
-        quantite = st.number_input("Quantité", min_value=0.0, step=0.01, key="quantite_input")
+        montant = st.number_input("Montant", min_value=0.0, step=0.01, key="montant_input")
         prix_achat = st.number_input("Prix d'achat", min_value=0.0, step=0.01, key="prix_input")
+        frais = st.number_input("Frais", min_value=0.0, step=0.01, key="frais_input")
         date_achat = st.date_input("Date d'achat", value=datetime.now().date(), key="date_input")
         
         submitted = st.form_submit_button("Ajouter la position")
         
-        if submitted and symbole and nom and quantite > 0 and prix_achat > 0:
+        if submitted and symbole and nom and montant > 0 and prix_achat > 0:
             # Vérifier si le symbole existe
             current_price = get_current_price(symbole)
             if current_price is not None:
@@ -112,9 +113,10 @@ with st.sidebar:
                     'symbole': [symbole.upper()],
                     'nom': [nom],
                     'classe_actif': [classe_actif],
-                    'quantite': [quantite],
+                    'montant': [montant],
                     'prix_achat': [prix_achat],
-                    'date_achat': [pd.to_datetime(date_achat)]
+                    'date_achat': [pd.to_datetime(date_achat)],
+                    'frais': [frais]
                 })
                 
                 df_portfolio = pd.concat([df_portfolio, new_position], ignore_index=True)
@@ -153,8 +155,8 @@ else:
         df_portfolio['prix_actuel'] = current_prices
     
     # Calcul des P&L
-    df_portfolio['valeur_achat'] = df_portfolio['quantite'] * df_portfolio['prix_achat']
-    df_portfolio['valeur_actuelle'] = df_portfolio['quantite'] * df_portfolio['prix_actuel']
+    df_portfolio['valeur_achat'] = df_portfolio['montant'] * df_portfolio['prix_achat'] + df_portfolio['frais']
+    df_portfolio['valeur_actuelle'] = df_portfolio['montant'] * df_portfolio['prix_actuel']
     df_portfolio['pnl_absolu'] = df_portfolio['valeur_actuelle'] - df_portfolio['valeur_achat']
     df_portfolio['pnl_pct'] = (df_portfolio['pnl_absolu'] / df_portfolio['valeur_achat'] * 100).round(2)
     
@@ -189,9 +191,10 @@ else:
     df_display['valeur_actuelle'] = df_display['valeur_actuelle'].map('{:,.2f} €'.format)
     df_display['pnl_absolu'] = df_display['pnl_absolu'].map('{:,.2f} €'.format)
     df_display['pnl_pct'] = df_display['pnl_pct'].map('{:.2f}%'.format)
+    df_display['frais'] = df_display['frais'].map('{:.2f} €'.format)
     
     # Colonnes à afficher
-    columns_to_show = ['symbole', 'nom', 'classe_actif', 'quantite', 'prix_achat', 
+    columns_to_show = ['symbole', 'nom', 'classe_actif', 'montant', 'prix_achat', 'frais',
                       'prix_actuel', 'valeur_actuelle', 'pnl_absolu', 'pnl_pct']
     
     st.dataframe(
@@ -200,8 +203,9 @@ else:
             'symbole': 'Symbole',
             'nom': 'Nom',
             'classe_actif': 'Classe',
-            'quantite': 'Quantité',
+            'montant': 'Montant',
             'prix_achat': 'Prix Achat',
+            'frais': 'Frais',
             'prix_actuel': 'Prix Actuel',
             'valeur_actuelle': 'Valeur Actuelle',
             'pnl_absolu': 'P&L (€)',
