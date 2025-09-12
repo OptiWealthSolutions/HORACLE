@@ -70,7 +70,7 @@ def plotCorrMatrix(corr, title="Correlation Matrix", labels=None):
     plt.show()
     return
 
-def loadMarketData(tickers, period="20y", interval="5d"):
+def loadMarketData(tickers, period="20y", interval="1d"):
     print(f"Loading data for {len(tickers)} tickers...")
     data = yf.download(tickers, period=period, interval=interval, progress=False)
     if len(tickers) == 1:
@@ -261,17 +261,30 @@ class HRPOptimizer:
         plt.show()
 
 def main():
-    tickers = [      # Gold Futures
-    "VOO",         # Vanguard S&P 500 ETF       # Japanese Yen / USD
-    "CL=F",        # WTI Crude Oil Futures
-    "CS.PA",       # AXA (Euronext Paris)
-    "CAT",         # Caterpillar Inc.
-    "CAP.PA",      # Capgemini (Euronext Paris)
-    "TTE",         # TotalEnergies (NYSE ADR)
-    "VOLV-B.ST",   # Volvo (Stockholm)
-    "KO",          # Coca-Cola
-    "LMT",         # Lockheed Martin   # Platinum Futures
-]
+    tickers = [      # Gold Futurestickers = [
+    "HM-B.ST",     # H&M (Hennes & Mauritz, Stockholm)
+    "VOLV-B.ST",   # Volvo
+    "CS.PA",       # AXA
+    "RHM.DE",      # Rheinmetall
+    "AM.PA",       # Dassault Aviation (ou Airbus si c'est AM : vérifier ton intention)
+    "LR.PA",       # Legrand
+    "CDI.PA",      # Christian Dior
+    "HO.PA",       # Thales (HO sur Euronext Paris)
+    "CAP.PA",      # Capgemini
+    "BYG.L",       # Big Yellow Group (UK, ticker BYG)
+    
+    # US stocks
+    "AAPL",        # Apple
+    "CAT",         # Caterpillar
+    "MA",          # Mastercard
+    "UPS",         # UPS
+    "MSFT",        # Microsoft
+    "VOO",         # Vanguard S&P 500 ETF (A500 de ton screenshot)
+    "LMT",         # Lockheed Martin
+    "KO" ,        # Coca-Cola
+    "PLTR"       # palantir
+       # Lockheed Martin   # Platinum Futures
+    ]
     
     print("Initializing Hierarchical Risk Parity Optimizer...")
     print("Weight constraint: Maximum 25% per asset")
