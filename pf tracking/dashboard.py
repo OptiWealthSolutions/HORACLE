@@ -635,3 +635,558 @@ def create_portfolio_table(df_portfolio: pd.DataFrame):
     """Crée un tableau de portfolio avancé et interactif"""
     
     st.header("📋 Portfolio Détaillé")
+    
+    if df_portfolio.empty:
+        st.info("Aucune position dans votre portfolio.")
+        return
+    
+    # Séparer positions ouvertes et fermées
+    df_ouvertes = df_portfolio[df_portfolio['montant'] > 0].copy()
+    df_fermees = df_portfolio[df_portfolio['montant'] < 0].copy()
+    
+    # Filtres interactifs
+    col1, col2, col3 = st.columns(3)
+    
+    with col1:
+        classe_filter = st.multiselect(
+            "Filtrer par classe d'actif",
+            options=df_portfolio['classe_actif'].unique(),
+            default=df_portfolio['classe_actif'].unique()
+        )
+    
+    with col2:
+        show_only_profitable = st.checkbox("Positions rentables uniquement", value=False)
+    
+    with col3:
+        sort_by = st.selectbox(
+            "Trier par",
+            options=['Symbole', 'Performance %', 'Valeur', 'P&L Absolu'],
+            index=2
+        )
+    
+    # Application des filtres
+    df_filtered = df_ouvertes[df_ouvertes['classe_actif'].isin(classe_filter)] if classe_filter else df_ouvertes
+    
+    if show_only_profitable and not df_filtered.empty:
+        df_filtered = df_filtered[df_filtered['pnl_pct'] > 0]
+    
+    # Tri
+    if not df_filtered.empty:
+        sort_mapping = {
+            'Symbole': 'symbole',
+            'Performance %': 'pnl_pct',
+            'Valeur': 'valeur_actuelle',
+            'P&L Absolu': 'pnl_absolu'
+        }
+        df_filtered = df_filtered.sort_values(sort_mapping[sort_by], ascending=False)
+    
+    # Formatage pour l'affichage
+    if not df_filtered.empty:
+        df_display = df_filtered.copy()
+        df_display['prix_achat_fmt'] = df_display['prix_achat'].apply(lambda x: f"{x:.2f} €")
+        df_display['prix_actuel_fmt'] = df_display['prix_actuel'].apply(lambda x: f"{x:.2f} €")
+        df_display['valeur_achat_fmt'] = df_display['valeur_achat'].apply(lambda x: f"{x:,.0f} €")
+        df_display['valeur_actuelle_fmt'] = df_display['valeur_actuelle'].apply(lambda x: f"{x:,.0f} €")
+        df_display['pnl_absolu_fmt'] = df_display['pnl_absolu'].apply(lambda x: f"{x:+,.0f} €")
+        df_display['pnl_pct_fmt'] = df_display['pnl_pct'].apply(lambda x: f"{x:+.1f}%")
+        df_display['frais_fmt'] = df_display['frais'].apply(lambda x: f"{x:.2f} €")
+        
+        # Colonnes à afficher
+        columns_display = {
+            'symbole': 'Symbole',
+            'nom': 'Nom',
+            'classe_actif': 'Classe',
+            'montant': 'Quantité/Montant',
+            'prix_achat_fmt': 'Prix Achat',
+            'prix_actuel_fmt': 'Prix Actuel',
+            'valeur_actuelle_fmt': 'Valeur Actuelle',
+            'pnl_absolu_fmt': 'P&L (€)',
+            'pnl_pct_fmt': 'P&L (%)',
+            'frais_fmt': 'Frais',
+            'date_achat': 'Date Achat'
+        }
+        
+        # Configuration des couleurs pour les colonnes P&L
+        def color_pnl(val):
+            if 'P&L' in val.name:
+                if '+' in str(val):
+                    return ['background-color: #d4edda; color: #155724'] * len(val)
+                elif '-' in str(val):
+                    return ['background-color: #f8d7da; color: #721c24'] * len(val)
+            return [''] * len(val)
+        
+        # Affichage du tableau avec style
+        st.dataframe(
+            df_display[list(columns_display.keys())].rename(columns=columns_display),
+            use_container_width=True,
+            height=400,
+            column_config={
+                'Date Achat': st.column_config.DateColumn(
+                    "Date Achat",
+                    format="DD/MM/YYYY"
+                ),
+                'P&L (%)': st.column_config.TextColumn(
+                    "P&L (%)",
+                    help="Performance en pourcentage"
+                ),
+                'P&L (€)': st.column_config.TextColumn(
+                    "P&L (€)",
+                    help="Profit/Perte en euros"
+                )
+            }
+        )
+        
+        # Résumé rapide
+        total_positions = len(df_filtered)
+        positions_rentables = len(df_filtered[df_filtered['pnl_pct'] > 0])
+        taux_reussite = (positions_rentables / total_positions * 100) if total_positions > 0 else 0
+        
+        col1, col2, col3 = st.columns(3)
+        with col1:
+            st.metric("📊 Positions Affichées", total_positions)
+        with col2:
+            st.metric("✅ Positions Rentables", positions_rentables)
+        with col3:
+            st.metric("🎯 Taux de Réussite", f"{taux_reussite:.1f}%")
+
+
+def create_sidebar_interface():
+    """Interface sidebar avancée avec tous les formulaires"""
+    
+    with st.sidebar:
+        # Logo et titre
+        st.markdown("""
+        <div style="text-align: center; padding: 1rem; background: linear-gradient(45deg, #667eea, #764ba2); border-radius: 10px; margin-bottom: 2rem;">
+            <h2 style="color: white; margin: 0;">🚀 OptiWealth</h2>
+            <p style="color: rgba(255,255,255,0.8); margin: 0; font-size: 0.9rem;">Gestion Professionnelle</p>
+        </div>
+        """, unsafe_allow_html=True)
+        
+        # Tabs pour organiser les actions
+        tab1, tab2, tab3 = st.tabs(["➕ Ajouter", "📉 Vendre", "⚙️ Gestion"])
+        
+        with tab1:
+            st.header("Nouvelle Position")
+            
+            with st.form("add_position_form", clear_on_submit=True):
+                # Auto-complétion pour les symboles populaires
+                popular_symbols = ["AAPL", "MSFT", "GOOGL", "AMZN", "TSLA", "NVDA", "BTC-USD", "ETH-USD", 
+                                 "MC.PA", "OR.PA", "SAN.PA", "BNP.PA", "AIR.PA"]
+                
+                col1, col2 = st.columns(2)
+                with col1:
+                    symbole = st.text_input(
+                        "Symbole*",
+                        placeholder="Ex: AAPL, BTC-USD",
+                        help="Symbole Yahoo Finance"
+                    ).upper()
+                
+                with col2:
+                    if st.button("🔍 Vérifier"):
+                        if symbole:
+                            info = get_ticker_info(symbole)
+                            if info.get('longName'):
+                                st.success(f"✅ {info['longName']}")
+                            else:
+                                st.error("❌ Symbole non trouvé")
+                
+                # Suggestions de symboles populaires
+                st.markdown("**Suggestions populaires:**")
+                suggestion_cols = st.columns(5)
+                for i, symbol in enumerate(popular_symbols[:10]):
+                    with suggestion_cols[i % 5]:
+                        if st.button(symbol, key=f"suggest_{symbol}"):
+                            st.session_state.symbole_input = symbol
+                
+                nom = st.text_input(
+                    "Nom de l'actif*",
+                    placeholder="Ex: Apple Inc."
+                )
+                
+                col1, col2 = st.columns(2)
+                with col1:
+                    classe_actif = st.selectbox(
+                        "Classe d'actif*",
+                        options=list(ASSET_CLASSES.keys()),
+                        format_func=lambda x: x
+                    )
+                
+                with col2:
+                    zone_geo = st.selectbox(
+                        "Zone géographique",
+                        options=GEOGRAPHICAL_ZONES
+                    )
+                
+                secteur = st.text_input(
+                    "Secteur",
+                    placeholder="Ex: Technologie, Finance..."
+                )
+                
+                col1, col2 = st.columns(2)
+                with col1:
+                    montant = st.number_input(
+                        "Montant/Quantité*",
+                        min_value=0.01,
+                        step=0.01,
+                        format="%.4f",
+                        help="Montant investi ou quantité achetée"
+                    )
+                
+                with col2:
+                    prix_achat = st.number_input(
+                        "Prix d'achat*",
+                        min_value=0.01,
+                        step=0.01,
+                        format="%.4f"
+                    )
+                
+                col1, col2 = st.columns(2)
+                with col1:
+                    frais = st.number_input(
+                        "Frais",
+                        min_value=0.0,
+                        step=0.01,
+                        value=0.0
+                    )
+                
+                with col2:
+                    date_achat = st.date_input(
+                        "Date d'achat*",
+                        value=datetime.now().date(),
+                        max_value=datetime.now().date()
+                    )
+                
+                # Calcul automatique
+                if montant > 0 and prix_achat > 0:
+                    valeur_totale = montant * prix_achat + frais
+                    st.info(f"💰 Valeur totale: **{valeur_totale:,.2f} €**")
+                
+                submitted = st.form_submit_button("➕ Ajouter Position", use_container_width=True)
+                
+                if submitted:
+                    if not all([symbole, nom, montant > 0, prix_achat > 0]):
+                        st.error("❌ Veuillez remplir tous les champs obligatoires (*)")
+                    else:
+                        # Vérification du symbole
+                        current_price = get_current_price(symbole)
+                        if current_price is not None:
+                            # Récupération des infos automatiques
+                            info = get_ticker_info(symbole)
+                            
+                            new_position = pd.DataFrame({
+                                'symbole': [symbole],
+                                'nom': [nom],
+                                'classe_actif': [ASSET_CLASSES[classe_actif]],
+                                'montant': [montant],
+                                'prix_achat': [prix_achat],
+                                'date_achat': [pd.to_datetime(date_achat)],
+                                'frais': [frais],
+                                'zone_geo': [zone_geo],
+                                'secteur': [secteur if secteur else info.get('sector', '')]
+                            })
+                            
+                            df_portfolio = load_portfolio_data()
+                            df_portfolio = pd.concat([df_portfolio, new_position], ignore_index=True)
+                            save_portfolio_data(df_portfolio)
+                            
+                            st.success(f"✅ Position {symbole} ajoutée avec succès!")
+                            st.balloons()
+                            st.rerun()
+                        else:
+                            st.error(f"❌ Symbole {symbole} non trouvé sur Yahoo Finance")
+        
+        with tab2:
+            st.header("Vendre Position")
+            
+            df_portfolio = load_portfolio_data()
+            df_ouvertes = df_portfolio[df_portfolio['montant'] > 0]
+            
+            if df_ouvertes.empty:
+                st.info("Aucune position à vendre")
+            else:
+                with st.form("sell_position_form"):
+                    # Sélection par symbole
+                    symbole_vente = st.selectbox(
+                        "Symbole à vendre",
+                        options=df_ouvertes['symbole'].unique()
+                    )
+                    
+                    # Positions disponibles pour ce symbole
+                    positions_symbole = df_ouvertes[df_ouvertes['symbole'] == symbole_vente]
+                    
+                    if len(positions_symbole) > 1:
+                        position_idx = st.selectbox(
+                            "Quelle position?",
+                            options=positions_symbole.index,
+                            format_func=lambda x: f"Achat {positions_symbole.loc[x, 'date_achat'].strftime('%d/%m/%Y')} - {positions_symbole.loc[x, 'montant']:.2f}"
+                        )
+                    else:
+                        position_idx = positions_symbole.index[0]
+                    
+                    position_selectionnee = df_portfolio.loc[position_idx]
+                    montant_max = position_selectionnee['montant']
+                    
+                    # Affichage des infos de la position
+                    st.info(f"""
+                    **Position sélectionnée:**
+                    - Montant disponible: {montant_max:.4f}
+                    - Prix d'achat: {position_selectionnee['prix_achat']:.2f} €
+                    - Date d'achat: {position_selectionnee['date_achat'].strftime('%d/%m/%Y')}
+                    """)
+                    
+                    col1, col2 = st.columns(2)
+                    with col1:
+                        montant_vente = st.number_input(
+                            "Quantité à vendre",
+                            min_value=0.01,
+                            max_value=float(montant_max),
+                            step=0.01,
+                            value=float(montant_max)
+                        )
+                    
+                    with col2:
+                        # Prix de vente avec suggestion du prix actuel
+                        prix_actuel = get_current_price(symbole_vente)
+                        prix_vente = st.number_input(
+                            "Prix de vente",
+                            min_value=0.01,
+                            step=0.01,
+                            value=float(prix_actuel) if prix_actuel else position_selectionnee['prix_achat']
+                        )
+                    
+                    col1, col2 = st.columns(2)
+                    with col1:
+                        frais_vente = st.number_input(
+                            "Frais de vente",
+                            min_value=0.0,
+                            step=0.01,
+                            value=0.0
+                        )
+                    
+                    with col2:
+                        date_vente = st.date_input(
+                            "Date de vente",
+                            value=datetime.now().date(),
+                            max_value=datetime.now().date()
+                        )
+                    
+                    # Calcul du P&L prévisionnel
+                    if montant_vente > 0 and prix_vente > 0:
+                        pnl_previsionnel = montant_vente * (prix_vente - position_selectionnee['prix_achat']) - frais_vente
+                        pnl_pct_prev = (pnl_previsionnel / (montant_vente * position_selectionnee['prix_achat']) * 100)
+                        
+                        color = "green" if pnl_previsionnel >= 0 else "red"
+                        st.markdown(f"""
+                        <div style="padding: 1rem; background: rgba(0,0,0,0.1); border-radius: 8px; text-align: center;">
+                            <h4>📊 P&L Prévisionnel</h4>
+                            <h2 style="color: {color};">{pnl_previsionnel:+.2f} € ({pnl_pct_prev:+.1f}%)</h2>
+                        </div>
+                        """, unsafe_allow_html=True)
+                    
+                    sell_submitted = st.form_submit_button("📉 Vendre Position", use_container_width=True)
+                    
+                    if sell_submitted:
+                        if montant_vente <= 0 or montant_vente > montant_max:
+                            st.error("❌ Quantité de vente invalide")
+                        elif prix_vente <= 0:
+                            st.error("❌ Prix de vente invalide")
+                        else:
+                            # Mise à jour de la position existante
+                            df_portfolio.loc[position_idx, 'montant'] -= montant_vente
+                            
+                            # Enregistrement de la vente
+                            vente_position = pd.DataFrame({
+                                'symbole': [symbole_vente],
+                                'nom': [position_selectionnee['nom']],
+                                'classe_actif': [position_selectionnee['classe_actif']],
+                                'montant': [-montant_vente],
+                                'prix_achat': [prix_vente],  # Prix de vente stocké comme prix d'achat négatif
+                                'date_achat': [pd.to_datetime(date_vente)],
+                                'frais': [frais_vente],
+                                'zone_geo': [position_selectionnee['zone_geo']],
+                                'secteur': [position_selectionnee['secteur']]
+                            })
+                            
+                            df_portfolio = pd.concat([df_portfolio, vente_position], ignore_index=True)
+                            
+                            # Supprimer la ligne si montant = 0
+                            if df_portfolio.loc[position_idx, 'montant'] == 0:
+                                df_portfolio = df_portfolio.drop(position_idx).reset_index(drop=True)
+                            
+                            save_portfolio_data(df_portfolio)
+                            
+                            st.success(f"✅ Vente réalisée: {pnl_previsionnel:+.2f} € ({pnl_pct_prev:+.1f}%)")
+                            st.balloons()
+                            st.rerun()
+        
+        with tab3:
+            st.header("Gestion du Portfolio")
+            
+            df_portfolio = load_portfolio_data()
+            
+            # Export des données
+            if not df_portfolio.empty:
+                st.subheader("📤 Export")
+                
+                # Export CSV
+                csv = df_portfolio.to_csv(index=False)
+                st.download_button(
+                    "💾 Télécharger CSV",
+                    csv,
+                    "portfolio_export.csv",
+                    "text/csv",
+                    use_container_width=True
+                )
+                
+                # Statistiques du fichier
+                file_stats = {
+                    "Taille du fichier": f"{len(csv)} caractères",
+                    "Nombre de positions": len(df_portfolio),
+                    "Dernière modification": datetime.fromtimestamp(os.path.getmtime(CSV_FILE)).strftime('%d/%m/%Y %H:%M') if os.path.exists(CSV_FILE) else "N/A"
+                }
+                
+                for stat, value in file_stats.items():
+                    st.text(f"{stat}: {value}")
+            
+            st.subheader("🗑️ Suppression")
+            
+            if not df_portfolio.empty:
+                position_to_delete = st.selectbox(
+                    "Position à supprimer",
+                    options=df_portfolio.index,
+                    format_func=lambda x: f"{df_portfolio.loc[x, 'symbole']} - {df_portfolio.loc[x, 'nom']} ({df_portfolio.loc[x, 'date_achat'].strftime('%d/%m/%Y')})"
+                )
+                
+                if st.button("🗑️ Supprimer Position", use_container_width=True):
+                    df_portfolio = df_portfolio.drop(position_to_delete).reset_index(drop=True)
+                    save_portfolio_data(df_portfolio)
+                    st.success("✅ Position supprimée!")
+                    st.rerun()
+            else:
+                st.info("Aucune position à supprimer")
+            
+            # Nettoyage des données
+            st.subheader("🧹 Maintenance")
+            
+            if st.button("🔄 Nettoyer les doublons", use_container_width=True):
+                if not df_portfolio.empty:
+                    df_clean = df_portfolio.drop_duplicates(subset=['symbole', 'date_achat', 'prix_achat'])
+                    removed = len(df_portfolio) - len(df_clean)
+                    if removed > 0:
+                        save_portfolio_data(df_clean)
+                        st.success(f"✅ {removed} doublons supprimés!")
+                        st.rerun()
+                    else:
+                        st.info("Aucun doublon détecté")
+            
+            # Sauvegarde de sécurité
+            if st.button("💾 Sauvegarde de sécurité", use_container_width=True):
+                backup_name = f"portfolio_backup_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv"
+                df_portfolio.to_csv(backup_name, index=False)
+                st.success(f"✅ Sauvegarde créée: {backup_name}")
+
+
+# Interface principale
+def main():
+    """Fonction principale du dashboard"""
+    
+    # Chargement et traitement des données
+    df_portfolio = load_portfolio_data()
+    
+    # Interface sidebar
+    create_sidebar_interface()
+    
+    # Contenu principal
+    if df_portfolio.empty:
+        # Page d'accueil pour nouveaux utilisateurs
+        st.markdown("""
+        <div class="header-container">
+            <h1 class="header-title">🚀 Bienvenue sur OptiWealth Pro</h1>
+            <p class="header-subtitle">Votre tableau de bord professionnel pour gérer vos investissements</p>
+        </div>
+        """, unsafe_allow_html=True)
+        
+        col1, col2, col3 = st.columns(3)
+        
+        with col1:
+            st.markdown("""
+            <div style="text-align: center; padding: 2rem; background: linear-gradient(45deg, rgba(102, 126, 234, 0.1), rgba(118, 75, 162, 0.1)); border-radius: 15px; margin-bottom: 1rem;">
+                <h3>📊 Suivi en Temps Réel</h3>
+                <p>Prix actualisés via Yahoo Finance</p>
+            </div>
+            """, unsafe_allow_html=True)
+        
+        with col2:
+            st.markdown("""
+            <div style="text-align: center; padding: 2rem; background: linear-gradient(45deg, rgba(102, 126, 234, 0.1), rgba(118, 75, 162, 0.1)); border-radius: 15px; margin-bottom: 1rem;">
+                <h3>💰 Calculs Automatiques</h3>
+                <p>P&L, performances, métriques</p>
+            </div>
+            """, unsafe_allow_html=True)
+        
+        with col3:
+            st.markdown("""
+            <div style="text-align: center; padding: 2rem; background: linear-gradient(45deg, rgba(102, 126, 234, 0.1), rgba(118, 75, 162, 0.1)); border-radius: 15px; margin-bottom: 1rem;">
+                <h3>📈 Visualisations</h3>
+                <p>Graphiques interactifs avancés</p>
+            </div>
+            """, unsafe_allow_html=True)
+        
+        st.info("👈 Commencez par ajouter votre première position via la barre latérale!")
+        
+        # Guide de démarrage
+        with st.expander("📚 Guide de démarrage rapide"):
+            st.markdown("""
+            ### 🚀 Comment commencer ?
+            
+            1. **➕ Ajouter une position** : Utilisez l'onglet "Ajouter" dans la barre latérale
+            2. **📊 Suivre les performances** : Le dashboard se met à jour automatiquement
+            3. **📉 Gérer les ventes** : Vendez partiellement ou totalement vos positions
+            4. **📈 Analyser** : Explorez les graphiques et métriques avancées
+            
+            ### 💡 Symboles supportés
+            - **Actions US** : AAPL, MSFT, GOOGL, AMZN, TSLA...
+            - **Actions EU** : MC.PA, ASML.AS, SAP.DE...
+            - **Crypto** : BTC-USD, ETH-USD, ADA-USD...
+            - **ETF** : SPY, QQQ, VTI, IWDA.AS...
+            
+            ### 🔧 Fonctionnalités avancées
+            - Calculs automatiques de P&L
+            - Métriques de risque (Sharpe, volatilité)
+            - Analyse de diversification
+            - Recommandations intelligentes
+            - Export des données
+            """)
+    
+    else:
+        # Dashboard principal avec données
+        df_portfolio, df_ouvertes, df_ventes = create_advanced_metrics_display(df_portfolio)
+        
+        # Espacement
+        st.markdown("<br>", unsafe_allow_html=True)
+        
+        # Visualisations avancées
+        create_advanced_visualizations(df_portfolio, df_ouvertes)
+        
+        # Espacement
+        st.markdown("<br>", unsafe_allow_html=True)
+        
+        # Tableau détaillé
+        create_portfolio_table(df_portfolio)
+    
+    # Footer avec informations
+    st.markdown("---")
+    col1, col2, col3 = st.columns(3)
+    
+    with col1:
+        st.markdown("💡 **Données** : Sauvegarde automatique en CSV")
+    with col2:
+        st.markdown("🔄 **Prix** : Mise à jour via Yahoo Finance")
+    with col3:
+        if st.button("🔄 Actualiser", use_container_width=True):
+            st.cache_data.clear()
+            st.rerun()
+
+# Lancement de l'application
+if __name__ == "__main__":
+    main()
