@@ -21,8 +21,9 @@ from sklearn.decomposition import PCA
 from sklearn.metrics import f1_score
 from sklearn.metrics import roc_auc_score
 from sklearn.ensemble import GradientBoostingClassifier
+
 class PurgedKFold:
-    def __init__(self, n_splits=5, embargo_pct=0.):
+    def __init__(self, n_splits=5, embargo_pct=0.01):
         self.n_splits = n_splits
         self.embargo_pct = embargo_pct
 
@@ -150,14 +151,14 @@ class MomentumStrategy():
     def getDataLoad(self):
         df = yf.download(self.ticker, period=self.PERIOD, interval=self.INTERVAL)
         df = df.dropna()
-        Q1 = df['Close'].quantile(0.15)
-        Q3 = df['Close'].quantile(0.85)
+        Q1 = df['Close'].quantile(0.25)
+        Q3 = df['Close'].quantile(0.75)
         IQR = Q3 - Q1
         lower_bound = Q1 - 1.5 * IQR
         upper_bound = Q3 + 1.5 * IQR
         df = df[(df['Close'] >= lower_bound) & (df['Close'] <= upper_bound)]
         df['log_return'] = np.log(df['Close'] / df['Close'].shift(1))
-        df['return'] = (df['Close'].shift(-self.SHIFT) - df['Close']) / df['Close']
+        df['return'] = df['Close'].pct_change(self.SHIFT).shift(-self.SHIFT)
         df.dropna()
         return df
 
@@ -231,10 +232,10 @@ class MomentumStrategy():
         conditions = []
         # threshold ?
         # Signal long si momentum positif ET RSI pas en surachat
-        long_signal = (self.df['PriceMomentum'] > 0) & (self.df['RSI'] < 70)
+        long_signal = (self.df['PriceMomentum'] > 0) & (self.df['RSI'] < 70) & (self.df['RSI'] > 30)
         
         # Signal short si momentum négatif ET RSI pas en survente  
-        short_signal = (self.df['PriceMomentum'] < 0) & (self.df['RSI'] > 30)
+        short_signal = (self.df['PriceMomentum'] < 0) & (self.df['RSI'] < 70) & (self.df['RSI'] > 30)
         
         # Créer la colonne side
         self.df['side'] = 0  # Par défaut neutre
@@ -243,12 +244,7 @@ class MomentumStrategy():
         
         return self.df['side']
 
-    def getLabels(self, max_hold_days=10, volatility_scaling=True,ratio=3):
-        #atr based profit_target and stop_loss
-        rolling_std = self.df['Close'].pct_change().rolling(window=20).std()
-        stop_loss = rolling_std * 2
-        profit_target = ratio * stop_loss
-        
+    def getLabels(self, max_hold_days=10,stop_loss = 0.01, profit_target = 0.03, volatility_scaling=True):
         prices = self.df['Close']
         n = len(prices)
         

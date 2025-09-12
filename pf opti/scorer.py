@@ -6,7 +6,7 @@ import pandas as pd
 teststocksList = ["AAPL", "MSFT", "AMZN", "TSLA", "META"]
 class DataLoader():
     def __init__(self):
-        self.tickers_list = []
+        self.tickers_list = ["AAPL", "MSFT", "AMZN", "TSLA", "META"]
         self.PERIOD = "20y"
         self.INTERVAL = "1d"
 
@@ -14,8 +14,9 @@ class DataLoader():
         self.df = pd.DataFrame()
         self.df = yf.download(self.tickers_list, period=self.PERIOD, interval=self.INTERVAL)['Close']
         self.df = self.df.dropna()
+        self.df['return'] = self.df['return'].pct_change().dropna()
         self.df = self.df['return'].resample('Q').stack()
-        self.df['annual_return'] = self.df['return'].pct_change().dropna()
+        self.df['annual_return'] = self.df['return'].rolling(252).mean().dropna()
         return self.df
 
     def getMacroData(self):
@@ -43,14 +44,16 @@ class DataLoader():
         - PE ratio ≤ average P/E ratio sur 10Y
         - the last year return has to be positive or near to 0 if it is not
         '''
-        self.df = self.df[(self.df['trainliongPE'] <= self.df['trainliongPE'].mean()) & (self.df['ROE'] >= 20) & (self.df['ROIC'] >= 15) & (self.df['debt_to_equity'] >= 1.5) & (self.df['current_ratio'] >= 1.5)]
-        return
+        self.df = self.df[(self.df['trainlingPE'] <= self.df['trainlingPE'].mean()) & 
+        (self.df['ROE'] >= 20) & (self.df['ROIC'] >= 15) & (self.df['debt_to_equity'] >= 1.5) & 
+        (self.df['current_ratio'] >= 1.5)]
+        self.df = self.df[(self.df['annual_return'] >= 0) | (self.df['annual_return'] <= 0.01)]
+        print(self.df)
+        return 
 
 def main():
     dataLoader = DataLoader()
     dataLoader.getDataLoad()
-    dataLoader.getMacroData()
-    dataLoader.getFundamentalData()
     dataLoader.getCompaniesFiltered()
     return
 
