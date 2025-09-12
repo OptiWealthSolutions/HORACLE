@@ -35,6 +35,16 @@ def load_portfolio_data():
         try:
             df = pd.read_csv(CSV_FILE)
             df['date_achat'] = pd.to_datetime(df['date_achat'])
+            # Vérifier si les colonnes 'montant' et 'frais' existent, sinon les ajouter avec 0.0
+            updated = False
+            if 'montant' not in df.columns:
+                df['montant'] = 0.0
+                updated = True
+            if 'frais' not in df.columns:
+                df['frais'] = 0.0
+                updated = True
+            if updated:
+                save_portfolio_data(df)
             return df
         except:
             return pd.DataFrame(columns=['symbole', 'nom', 'classe_actif', 'montant', 'prix_achat', 'date_achat', 'frais'])
