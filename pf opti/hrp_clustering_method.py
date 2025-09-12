@@ -282,7 +282,9 @@ def main():
     "VOO",         # Vanguard S&P 500 ETF (A500 de ton screenshot)
     "LMT",         # Lockheed Martin
     "KO" ,        # Coca-Cola
-    "PLTR"       # palantir
+    "PLTR"  ,
+    "TTE.PA"     #total
+     # palantir
        # Lockheed Martin   # Platinum Futures
     ]
     
