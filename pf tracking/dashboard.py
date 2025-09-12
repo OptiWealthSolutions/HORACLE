@@ -352,8 +352,8 @@ else:
     col1, col2 = st.columns(2)
     
     with col1:
-        # Répartition par classe d'actif
-        df_allocation = df_portfolio.groupby('classe_actif')['valeur_actuelle'].sum().reset_index()
+        # Répartition par classe d'actif (ne prendre en compte que les positions ouvertes)
+        df_allocation = df_ouvertes.groupby('classe_actif')['valeur_actuelle'].sum().reset_index()
         fig_pie = px.pie(df_allocation, values='valeur_actuelle', names='classe_actif',
                         title="Répartition par Classe d'Actif")
         st.plotly_chart(fig_pie, use_container_width=True)
