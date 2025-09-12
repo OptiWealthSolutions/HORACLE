@@ -360,7 +360,7 @@ else:
     
     with col2:
         # P&L par position
-        fig_bar = px.bar(df_portfolio, x='symbole', y='pnl_absolu',
+        fig_bar = px.bar(df_display, x='symbole', y='pnl_absolu',
                         color='pnl_absolu', color_continuous_scale='RdYlGn',
                         title="P&L par Position")
         fig_bar.update_layout(showlegend=False)
