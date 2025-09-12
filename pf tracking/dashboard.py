@@ -136,6 +136,95 @@ with st.sidebar:
             else:
                 st.error(f"Symbole {symbole} non trouvé sur Yahoo Finance")
 
+    # Formulaire pour vendre une position (vente partielle)
+    if not df_portfolio.empty:
+        st.header("📉 Vendre une position")
+        with st.form("sell_position_form"):
+            sell_symbole = st.selectbox(
+                "Symbole",
+                options=df_portfolio['symbole'].unique(),
+                key="sell_symbole_select"
+            )
+            # Filtrer les lignes correspondantes au symbole sélectionné
+            filtered_positions = df_portfolio[df_portfolio['symbole'] == sell_symbole]
+            # Afficher les lignes avec index pour référence
+            position_indices = filtered_positions.index.tolist()
+            position_display = [f"{row['nom']} - Montant: {row['montant']}" for _, row in filtered_positions.iterrows()]
+            selected_position_idx = st.selectbox(
+                "Sélectionner la ligne à vendre",
+                options=position_indices,
+                format_func=lambda x: position_display[position_indices.index(x)],
+                key="sell_position_line_select"
+            )
+            max_montant = df_portfolio.loc[selected_position_idx, 'montant']
+            montant_vente = st.number_input(
+                "Montant à vendre",
+                min_value=0.01,
+                max_value=float(max_montant),
+                step=0.01,
+                key="montant_vente_input"
+            )
+            prix_vente = st.number_input(
+                "Prix de vente",
+                min_value=0.0,
+                step=0.01,
+                key="prix_vente_input"
+            )
+            frais_vente = st.number_input(
+                "Frais de vente",
+                min_value=0.0,
+                step=0.01,
+                key="frais_vente_input"
+            )
+            date_vente = st.date_input(
+                "Date de vente",
+                value=datetime.now().date(),
+                key="date_vente_input"
+            )
+            sell_submitted = st.form_submit_button("Vendre la position")
+            
+            if sell_submitted:
+                if montant_vente <= 0:
+                    st.error("Le montant à vendre doit être supérieur à 0.")
+                elif montant_vente > max_montant:
+                    st.error("Le montant à vendre ne peut pas dépasser le montant détenu.")
+                elif prix_vente <= 0:
+                    st.error("Le prix de vente doit être supérieur à 0.")
+                else:
+                    # Mettre à jour la ligne existante en réduisant le montant
+                    df_portfolio.loc[selected_position_idx, 'montant'] -= montant_vente
+                    
+                    # Ajouter une ligne de vente avec montant vendu, prix de vente, frais, date de vente
+                    # On marque 'prix_achat' négatif pour indiquer une vente (ou on peut ajouter une colonne 'type' ?)
+                    # Pour conserver cohérence, on ajoute une ligne avec montant négatif, prix d'achat = prix_vente, frais = frais_vente, date_achat = date_vente
+                    # Nom, classe_actif restent les mêmes
+                    vente_position = pd.DataFrame({
+                        'symbole': [df_portfolio.loc[selected_position_idx, 'symbole']],
+                        'nom': [df_portfolio.loc[selected_position_idx, 'nom']],
+                        'classe_actif': [df_portfolio.loc[selected_position_idx, 'classe_actif']],
+                        'montant': [-montant_vente],
+                        'prix_achat': [prix_vente],
+                        'date_achat': [pd.to_datetime(date_vente)],
+                        'frais': [frais_vente]
+                    })
+                    df_portfolio = pd.concat([df_portfolio, vente_position], ignore_index=True)
+                    
+                    # Supprimer la position si le montant est devenu 0
+                    if df_portfolio.loc[selected_position_idx, 'montant'] == 0:
+                        df_portfolio = df_portfolio.drop(selected_position_idx).reset_index(drop=True)
+                    
+                    save_portfolio_data(df_portfolio)
+                    
+                    # Calcul du P&L pour la partie vendue
+                    prix_achat_orig = df_portfolio.loc[selected_position_idx, 'prix_achat'] if selected_position_idx in df_portfolio.index else None
+                    pnl_vente = montant_vente * (prix_vente - prix_achat_orig) - frais_vente if prix_achat_orig is not None else None
+                    
+                    if pnl_vente is not None:
+                        st.success(f"Vente de {montant_vente} {sell_symbole} effectuée avec succès! P&L partiel: {pnl_vente:.2f} €")
+                    else:
+                        st.success(f"Vente de {montant_vente} {sell_symbole} effectuée avec succès!")
+                    st.rerun()
+
     # Bouton pour supprimer une position
     if not df_portfolio.empty:
         st.header("🗑️ Supprimer une position")
