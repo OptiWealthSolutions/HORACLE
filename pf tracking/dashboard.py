@@ -255,52 +255,68 @@ else:
     
     # Calcul des P&L prenant en compte les ventes partielles et les frais
     # Calcul des P&L avec 'montant' comme somme investie et non quantité
-        # valeur_achat = montant investi + frais
-        df_portfolio['valeur_achat'] = df_portfolio['montant'] + df_portfolio['frais']
+        # -------------------------
+# CALCUL DES METRICS PORTFOLIO
+    # -------------------------
 
-        # valeur_actuelle = montant investi ajusté selon la variation du prix
-        # Si prix_achat = 0, on évite division par zéro
-        df_portfolio['valeur_actuelle'] = np.where(
-            df_portfolio['prix_achat'] > 0,
-            df_portfolio['montant'] * (df_portfolio['prix_actuel'] / df_portfolio['prix_achat']),
-            df_portfolio['montant']
-        )
+    # Séparer positions ouvertes et ventes
+    df_ouvertes = df_portfolio[df_portfolio['montant'] > 0].copy()
+    df_ventes = df_portfolio[df_portfolio['montant'] < 0].copy()
 
-        # P&L absolu
-        df_portfolio['pnl_absolu'] = df_portfolio['valeur_actuelle'] - df_portfolio['valeur_achat']
+    # Pour les positions ouvertes : P&L flottant
+    df_ouvertes['valeur_achat'] = df_ouvertes['montant'] + df_ouvertes['frais']
+    df_ouvertes['valeur_actuelle'] = df_ouvertes['montant'] * (df_ouvertes['prix_actuel'] / df_ouvertes['prix_achat'])
+    df_ouvertes['pnl_absolu'] = df_ouvertes['valeur_actuelle'] - df_ouvertes['valeur_achat']
+    df_ouvertes['pnl_pct'] = np.where(
+        df_ouvertes['valeur_achat'] != 0,
+        (df_ouvertes['pnl_absolu'] / df_ouvertes['valeur_achat'] * 100).round(2),
+        0.0
+    )
 
-        # P&L en pourcentage
-        df_portfolio['pnl_pct'] = np.where(
-            df_portfolio['valeur_achat'] != 0,
-            (df_portfolio['pnl_absolu'] / df_portfolio['valeur_achat'] * 100).round(2),
-            0.0
-        )
-            
-    # Métriques de performance
-    metrics = calculate_performance_metrics(df_portfolio)
-    
-    # Affichage des métriques principales
-    col1, col2, col3, col4 = st.columns(4)
-    
+    # Pour les ventes : P&L déjà réalisé
+    # Prix actuel = prix de vente pour la ligne vente
+    df_ventes['valeur_achat'] = 0.0  # non pertinent pour ventes
+    df_ventes['valeur_actuelle'] = 0.0  # non pertinent
+    df_ventes['pnl_absolu'] = -df_ventes['montant'] * (df_ventes['prix_actuel'] - df_ventes['prix_achat']) - df_ventes['frais']
+    df_ventes['pnl_pct'] = np.where(
+        df_ventes['prix_achat'] != 0,
+        (df_ventes['pnl_absolu'] / (df_ventes['prix_achat'] * -df_ventes['montant'] + df_ventes['frais']) * 100).round(2),
+        0.0
+    )
+
+    # Metrics globales
+    capital_investi = df_ouvertes['valeur_achat'].sum()
+    valeur_actuelle = df_ouvertes['valeur_actuelle'].sum()
+    pnl_flottant = df_ouvertes['pnl_absolu'].sum()
+    pnl_realise = df_ventes['pnl_absolu'].sum()
+    nb_positions = len(df_ouvertes)
+
+    # -------------------------
+    # AFFICHAGE HEADER
+    # -------------------------
+    col1, col2, col3, col4, col5 = st.columns(5)
+
     with col1:
-        st.metric("💰 Valeur Investie", f"{metrics['total_invested']:,.2f} €")
-    
+        st.metric("💰 Capital Investi", f"{capital_investi:,.2f} €")
+
     with col2:
-        st.metric("📈 Valeur Actuelle", f"{metrics['total_current_value']:,.2f} €")
-    
+        st.metric("📈 Valeur Actuelle", f"{valeur_actuelle:,.2f} €")
+
     with col3:
-        pnl_color = "normal" if metrics['total_pnl'] >= 0 else "inverse"
-        st.metric("📊 P&L Total", f"{metrics['total_pnl']:,.2f} €", 
-                 delta=f"{metrics['total_pnl_pct']:.2f}%", delta_color=pnl_color)
-    
+        pnl_color = "normal" if pnl_flottant >= 0 else "inverse"
+        st.metric("📊 P&L Flottant", f"{pnl_flottant:,.2f} €", delta_color=pnl_color)
+
     with col4:
-        st.metric("🎯 Nb Positions", metrics['nb_positions'])
-    
-    # Tableau du portfolio
-    st.header("📋 Portfolio Détaillé")
-    
-    # Formatage pour l'affichage
-    df_display = df_portfolio.copy()
+        pnl_color_real = "normal" if pnl_realise >= 0 else "inverse"
+        st.metric("💸 P&L Réalisé", f"{pnl_realise:,.2f} €", delta_color=pnl_color_real)
+
+    with col5:
+        st.metric("🎯 Nb Positions Ouvertes", nb_positions)
+
+    # -------------------------
+    # PREPARATION DU TABLEAU COMPLET POUR AFFICHAGE
+    # -------------------------
+    df_display = pd.concat([df_ouvertes, df_ventes], ignore_index=True)
     df_display['prix_achat'] = df_display['prix_achat'].map('{:.2f} €'.format)
     df_display['prix_actuel'] = df_display['prix_actuel'].map('{:.2f} €'.format)
     df_display['valeur_achat'] = df_display['valeur_achat'].map('{:,.2f} €'.format)
@@ -308,11 +324,11 @@ else:
     df_display['pnl_absolu'] = df_display['pnl_absolu'].map('{:,.2f} €'.format)
     df_display['pnl_pct'] = df_display['pnl_pct'].map('{:.2f}%'.format)
     df_display['frais'] = df_display['frais'].map('{:.2f} €'.format)
-    
-    # Colonnes à afficher
+
     columns_to_show = ['symbole', 'nom', 'classe_actif', 'montant', 'prix_achat', 'frais',
-                      'prix_actuel', 'valeur_actuelle', 'pnl_absolu', 'pnl_pct']
-    
+                    'prix_actuel', 'valeur_actuelle', 'pnl_absolu', 'pnl_pct']
+
+    st.header("📋 Portfolio Détaillé")
     st.dataframe(
         df_display[columns_to_show],
         column_config={
