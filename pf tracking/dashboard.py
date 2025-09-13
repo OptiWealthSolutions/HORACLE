@@ -10,7 +10,7 @@ import os
 from PIL import Image
 
 # Chargement du logo avec PIL
-logo = Image.open("./logo_final.jpg")
+logo = Image.open("/logo_final.jpg")
 # Configuration de la page
 st.set_page_config(
     page_title="OWS DashBoard",
