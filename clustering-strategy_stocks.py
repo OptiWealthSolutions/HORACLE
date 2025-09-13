@@ -15,33 +15,41 @@ import warnings
 from sklearn.cluster import KMeans
 warnings.filterwarnings('ignore')
 
-sp500 = pd.read_html('https://en.wikipedia.org/wiki/List_of_S%26P_500_companies')[0]
 
-sp500['Symbol'] = sp500['Symbol'].str.replace('.', '-')
+tickers = [    
+    "VOLV-B.ST",   # Volvo
+    "CS.PA",       # AXA
+    "RHM.DE",      # Rheinmetall
+    "AM.PA",       # Dassault Aviation (ou Airbus si c'est AM : vérifier ton intention)
+    "HO.PA",       # Thales (HO sur Euronext Paris)
+    "CAP.PA",      # Capgemini
+    "AAPL",        # Apple
+    "CAT",         # Caterpillar
+    "MA",          # Mastercard
+    "MSFT",        # Microsoft
+    "LMT",         # Lockheed Martin
+    "KO" ,         # Coca-Cola
+    "PLTR"  ,      #Palantir    
+    "TTE.PA"       #Total
+    ]
 
-symbols_list = sp500['Symbol'].unique().tolist()
 
-end_date = '2023-09-27'
-
-start_date = pd.to_datetime(end_date)-pd.DateOffset(365*8)
-
-df = yf.download(tickers=symbols_list,
-                 start=start_date,
-                 end=end_date).stack()
+df = yf.download(tickers=tickers,
+                 period="max",interval='1d').stack()
 
 df.index.names = ['date', 'ticker']
 
 df.columns = df.columns.str.lower()
+print(pandas_ta.df_month_to_date)
+df['garman_klass_vol'] = ((np.log(df['high'])-np.log(df['low']))**2)/2-(2*np.log(2)-1)*((np.log(df['close'])-np.log(df['open']))**2)
 
-df['garman_klass_vol'] = ((np.log(df['high'])-np.log(df['low']))**2)/2-(2*np.log(2)-1)*((np.log(df['adj close'])-np.log(df['open']))**2)
+df['rsi'] = df.groupby(level=1)['close'].transform(lambda x: pandas_ta.rsi(close=x, length=20))
 
-df['rsi'] = df.groupby(level=1)['adj close'].transform(lambda x: pandas_ta.rsi(close=x, length=20))
-
-df['bb_low'] = df.groupby(level=1)['adj close'].transform(lambda x: pandas_ta.bbands(close=np.log1p(x), length=20).iloc[:,0])
+df['bb_low'] = df.groupby(level=1)['close'].transform(lambda x: pandas_ta.bbands(close=np.log1p(x), length=20).iloc[:,0])
                                                           
-df['bb_mid'] = df.groupby(level=1)['adj close'].transform(lambda x: pandas_ta.bbands(close=np.log1p(x), length=20).iloc[:,1])
+df['bb_mid'] = df.groupby(level=1)['close'].transform(lambda x: pandas_ta.bbands(close=np.log1p(x), length=20).iloc[:,1])
                                                           
-df['bb_high'] = df.groupby(level=1)['adj close'].transform(lambda x: pandas_ta.bbands(close=np.log1p(x), length=20).iloc[:,2])
+df['bb_high'] = df.groupby(level=1)['close'].transform(lambda x: pandas_ta.bbands(close=np.log1p(x), length=20).iloc[:,2])
 
 def compute_atr(stock_data):
     atr = pandas_ta.atr(high=stock_data['high'],
@@ -56,9 +64,9 @@ def compute_macd(close):
     macd = pandas_ta.macd(close=close, length=20).iloc[:,0]
     return macd.sub(macd.mean()).div(macd.std())
 
-df['macd'] = df.groupby(level=1, group_keys=False)['adj close'].apply(compute_macd)
+df['macd'] = df.groupby(level=1, group_keys=False)['close'].apply(compute_macd)
 
-df['dollar_volume'] = (df['adj close']*df['volume'])/1e6
+df['dollar_volume'] = (df['close']*df['volume'])/1e6
 
 last_cols = [c for c in df.columns.unique(0) if c not in ['dollar_volume', 'volume', 'open',
                                                           'high', 'low', 'close']]
@@ -81,7 +89,7 @@ def calculate_returns(df):
 
     for lag in lags:
 
-        df[f'return_{lag}m'] = (df['adj close']
+        df[f'return_{lag}m'] = (df['close']
                               .pct_change(lag)
                               .pipe(lambda x: x.clip(lower=x.quantile(outlier_cutoff),
                                                      upper=x.quantile(1-outlier_cutoff)))
