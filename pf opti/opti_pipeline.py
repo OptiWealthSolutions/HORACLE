@@ -1,4 +1,3 @@
-
 import yfinance as yf
 import numpy as np
 import pandas as pd
@@ -17,13 +16,14 @@ from scorer import get_fundamental_data, calculate_fundamental_score
 # 4. Ajuster HRP weights selon ML
 # 5. Re-normaliser pour garder Σ(weights)=1
 tickers = ["AAPL", "MSFT", "AMZN", "TSLA", "META"]
-og_df = calculate_fundamental_score(tickers)
+fundamentals = get_fundamental_data(tickers)
+og_df = calculate_fundamental_score(fundamentals)
 features_df = og_df.drop('Close', axis=1)
 
 # On cherche à prédire le coefficient devant le poids/score de chaque asset
 def labelling(features_df):
     # Score fondamental normalisé
-    fundamental_scores = features_df['fundamental_score']
+    fundamental_scores = features_df['norm_score']
     norm_fundamental = (fundamental_scores - fundamental_scores.min()) / (fundamental_scores.max() - fundamental_scores.min() + 1e-9)
 
     # Calcul du retour futur sur 5 jours
@@ -38,7 +38,8 @@ def labelling(features_df):
     combined = combined.fillna(0)
     # Normalisation pour que la somme = 1
     label = combined / combined.sum()
-
+    print(label)
+    
     # Retourne la série des labels
     return label
 

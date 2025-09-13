@@ -1,4 +1,5 @@
 from locale import normalize
+from pandas._libs import interval
 import yfinance as yf
 import numpy as np
 import pandas as pd
@@ -17,7 +18,7 @@ def get_fundamental_data(tickers):
             pb_ratio = stock.info.get('priceToBook', 0)  # P/B ratio
             book_value_per_share = stock.info.get('bookValue', 0)  # Book value per share
             min_price_value = np.sqrt(22.5*eps*book_value_per_share) 
-            Close = stock.history(period="1d")["Close"].iloc[-1]
+            Close = stock.history(interval="1d",period="10y")["Close"].iloc[-1]
             fundamentals[ticker] = {
                 'PE': pe_ratio,
                 'Dividend Yield': dividend_yield,
