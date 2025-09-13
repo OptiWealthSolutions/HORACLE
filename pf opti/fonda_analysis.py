@@ -1,8 +1,7 @@
+from locale import normalize
 import yfinance as yf
 import numpy as np
-from portfolio_optimization import optimize_portfolio_with_bias, get_dividends, simulate_portfolio_performance
-from report_generation import generate_pdf_report
-from stress_testing import stress_test_portfolio, analyze_stress_test_results
+import pandas as pd
 
 # Fonction pour récupérer des données fondamentales à partir de yfinance
 def get_fundamental_data(tickers):
@@ -14,12 +13,19 @@ def get_fundamental_data(tickers):
             dividend_yield = stock.info.get('dividendYield', 0)  # Dividend yield
             roe = stock.info.get('returnOnEquity', 0)  # ROE
             eps_growth = stock.info.get('earningsGrowth', 0)  # Growth in EPS
+            eps = stock.info.get('trailingEps', 0)  # Trailing EPS
+            pb_ratio = stock.info.get('priceToBook', 0)  # P/B ratio
+            book_value_per_share = stock.info.get('bookValue', 0)  # Book value per share
+            min_price_value = np.sqrt(22.5*eps*book_value_per_share) 
 
             fundamentals[ticker] = {
                 'PE': pe_ratio,
                 'Dividend Yield': dividend_yield,
                 'ROE': roe,
-                'EPS Growth': eps_growth
+                'EPS Growth': eps_growth,
+                'PB ratio' : pb_ratio,
+                'Book value per share' : book_value_per_share,
+                'Min price value' : min_price_value
             }
         except KeyError:
             print(f"Data not available for {ticker}")
@@ -29,54 +35,47 @@ def get_fundamental_data(tickers):
 def calculate_fundamental_score(fundamentals):
     scores = {}
     for ticker, metrics in fundamentals.items():
-        # Exemples de pondérations
+        # logique du scorer
         pe_score = 1 / (metrics['PE'] + 1) if metrics['PE'] > 0 else 0  # Un P/E plus bas est mieux
         dividend_score = metrics['Dividend Yield']  # Un rendement plus élevé est mieux
         roe_score = metrics['ROE'] if metrics['ROE'] > 0 else 0  # Un ROE plus élevé est mieux
         growth_score = metrics['EPS Growth'] if metrics['EPS Growth'] > 0 else 0  # Une croissance positive est mieux
-
+        pb_score = metrics['PB ratio'] if metrics['PB ratio'] > 0 else 0  # Un P/B plus bas est mieux
+        book_value_score = metrics['Book value per share'] if metrics['Book value per share'] > 0 else 0  # Un Book value per share plus élevé est mieux
         # Combinaison pondérée des scores
-        total_score = (0.4 * pe_score) + (0.2 * dividend_score) + (0.2 * roe_score) + (0.2 * growth_score)
+        total_score = (0.4 * pe_score) + (0.2 * dividend_score) + (0.2 * roe_score) + (0.2 * growth_score) + (0.2 * pb_score) + (0.2 * book_value_score)
         scores[ticker] = total_score
+        scores[ticker]['Min price value'] = metrics['Min price value']
 
     # Normalisation des scores pour que la somme des pondérations soit égale à 1
     total_sum = sum(scores.values())
-    normalized_scores = {ticker: score / total_sum for ticker, score in scores.items()}
-
-    return normalized_scores
+    df_score = pd.DataFrame.from_dict(scores, orient='index', columns=['Score'])
+    df_score['norm_score'] = (df_score['Score'] - min(df_score['Score'])) / (max(df_score['Score']) - min(df_score['Score']))
+    df_score['min_price_value'] = fundamentals[ticker]['Min price value']
+    print(df_score)
+    return 
 
 # Mise à jour des pondérations en fonction de l'analyse fondamentale
-def update_weights_with_fundamentals(tickers, bias_weights):
+def update_weights_with_fundamentals(tickers):
     fundamentals = get_fundamental_data(tickers)
     fundamental_scores = calculate_fundamental_score(fundamentals)
 
     # Ajuster les biais avec les scores fondamentaux
-    adjusted_weights = np.array([bias_weights[i] * fundamental_scores[ticker] for i, ticker in enumerate(tickers)])
-    return adjusted_weights / np.sum(adjusted_weights)  # Renormaliser les poids
+    adjusted_weights = np.array([fundamental_scores[ticker] for ticker in tickers])
+    return adjusted_weights  # Renormaliser les poids
 
+    
 # Exemple d'utilisation de la fonction mise à jour dans l'optimisation
 if __name__ == "__main__":
-    tickers = ["RMS.PA", "TTE.PA", "AI.PA","MC.PA",'TLSA', "AAPL","AMZN","MSFT","AXP","AIR.PA","SU.PA"]
-    start_date = '2014-06-29'
-    end_date = '2024-06-29'
-    capital = 1000  # Capital initial en euros
+    tickers = [      # Gold Futurestickers = [
+    "HM-B.ST",     # H&M (Hennes & Mauritz, Stockholm)
+    "VOLV-B.ST",   # Volvo
+    "CS.PA",       # AXA
+    "RHM.DE",      # Rheinmetall
+    "AM.PA",       # Dassault Aviation (ou Airbus si c'est AM : vérifier ton intention)
+    "CDI.PA",      # Christian Dior
+    "HO.PA",       # Thales (HO sur Euronext Paris)
+    "CAP.PA",      # Capgemini
+    ]
 
-    # Création d'un biais pour chaque entreprise (à ajuster avec l'analyse fondamentale)
-    bias_weights = np.array([2, 6, 4, 0, 5, 2, 9, 8, 9, 0, 9])
-
-    # Mise à jour des poids avec l'analyse fondamentale
-    updated_weights = update_weights_with_fundamentals(tickers, bias_weights)
-
-    # Optimisation du portefeuille en utilisant les poids mis à jour
-    optimal_weights, optimal_return, optimal_volatility, optimal_sharpe_ratio, mean_returns, cov_matrix = optimize_portfolio_with_bias(
-        tickers, start_date, end_date, risk_free_rate=0.01, bias_weights=updated_weights
-    )
-
-    # Simulation de la performance du portefeuille
-    dividends = get_dividends(tickers)
-    allocation, total_expected_return, total_dividends = simulate_portfolio_performance(capital, optimal_weights, mean_returns, dividends)
-
-    # Affichage des résultats
-    print(f"Allocation du capital : {allocation}")
-    print(f"Rendement total attendu : {total_expected_return:.2f} EUR")
-    print(f"Dividendes totaux : {total_dividends:.2f} EUR")
+    print(update_weights_with_fundamentals(tickers))
