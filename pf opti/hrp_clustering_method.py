@@ -233,6 +233,11 @@ class HRPOptimizer:
         # 3. Dendrogram
         dist = correlDist(self.corr)
         link = sch.linkage(dist, 'single')
+        '''
+        A dendrogram (or clustering dendrogram) is a diagram that shows the hierarchical 
+        relationship between objects. It is most commonly created as an output from hierarchical clustering. 
+        Dendrograms are used in machine learning and data science to help visualize clustering.
+        '''
         dendro = sch.dendrogram(link, labels=self.corr.index.tolist(), 
                                ax=axes[1,0], orientation='top')
         axes[1,0].set_title('Hierarchical Clustering Dendrogram')
@@ -261,23 +266,17 @@ class HRPOptimizer:
         plt.show()
 
 def main():
-    tickers = [      # Gold Futurestickers = [
-    "HM-B.ST",     # H&M (Hennes & Mauritz, Stockholm)
+    tickers = [
     "VOLV-B.ST",   # Volvo
     "CS.PA",       # AXA
     "RHM.DE",      # Rheinmetall
     "AM.PA",       # Dassault Aviation (ou Airbus si c'est AM : vérifier ton intention)
-    "CDI.PA",      # Christian Dior
     "HO.PA",       # Thales (HO sur Euronext Paris)
     "CAP.PA",      # Capgemini
-    
-    # US stocks
     "AAPL",        # Apple
     "CAT",         # Caterpillar
     "MA",          # Mastercard
-    "UPS",         # UPS
     "MSFT",        # Microsoft
-    "VOO",         # Vanguard S&P 500 ETF (A500 de ton screenshot)
     "LMT",         # Lockheed Martin
     "KO" ,         # Coca-Cola
     "PLTR"  ,      #Palantir    
