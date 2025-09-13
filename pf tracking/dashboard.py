@@ -10,14 +10,16 @@ import os
 
 # Configuration de la page
 st.set_page_config(
-    page_title="Dashboard d'Investissement",
-    page_icon="💰",
+    page_title="OWS DashBoard",
+    page_icon="logo_final.jpeg",
     layout="wide",
     initial_sidebar_state="expanded"
 )
 
-# Fichier CSV pour sauvegarder les données
-CSV_FILE = "portfolio_data.csv"
+PORTFOLIO_DIR = "portfolios"
+# Créer le dossier s'il n'existe pas
+if not os.path.exists(PORTFOLIO_DIR):
+    os.makedirs(PORTFOLIO_DIR)
 
 # Classes d'actifs disponibles
 ASSET_CLASSES = [
@@ -29,11 +31,12 @@ ASSET_CLASSES = [
     "Autre"
 ]
 
-def load_portfolio_data():
-    """Charge les données du portfolio depuis le fichier CSV"""
-    if os.path.exists(CSV_FILE):
+def load_portfolio_data(portfolio_name):
+    """Charge les données du portfolio depuis le fichier CSV spécifique"""
+    csv_file = f"{PORTFOLIO_DIR}/{portfolio_name}.csv"
+    if os.path.exists(csv_file):
         try:
-            df = pd.read_csv(CSV_FILE)
+            df = pd.read_csv(csv_file)
             df['date_achat'] = pd.to_datetime(df['date_achat'])
             # Vérifier si les colonnes 'montant' et 'frais' existent, sinon les ajouter avec 0.0
             updated = False
@@ -44,16 +47,17 @@ def load_portfolio_data():
                 df['frais'] = 0.0
                 updated = True
             if updated:
-                save_portfolio_data(df)
+                save_portfolio_data(df, portfolio_name)
             return df
         except:
             return pd.DataFrame(columns=['symbole', 'nom', 'classe_actif', 'montant', 'prix_achat', 'date_achat', 'frais'])
     else:
         return pd.DataFrame(columns=['symbole', 'nom', 'classe_actif', 'montant', 'prix_achat', 'date_achat', 'frais'])
 
-def save_portfolio_data(df):
-    """Sauvegarde les données du portfolio dans le fichier CSV"""
-    df.to_csv(CSV_FILE, index=False)
+def save_portfolio_data(df, portfolio_name):
+    """Sauvegarde les données du portfolio dans le fichier CSV spécifique"""
+    csv_file = f"{PORTFOLIO_DIR}/{portfolio_name}.csv"
+    df.to_csv(csv_file, index=False)
 
 def get_current_price(symbol):
     """Récupère le prix actuel depuis Yahoo Finance"""
@@ -94,16 +98,41 @@ def calculate_performance_metrics(df_portfolio):
         'nb_positions': len(df_portfolio)
     }
 
-# Interface principale
 st.title("💰 Dashboard d'Investissement")
 
-# Chargement des données
-df_portfolio = load_portfolio_data()
+# --- Gestion multi-portefeuilles ---
+with st.sidebar:
+    st.header("🗂️ Sélection du portefeuille")
+    # Liste des portefeuilles existants (fichiers .csv dans le dossier)
+    existing_portfolios = [f[:-4] for f in os.listdir(PORTFOLIO_DIR) if f.endswith('.csv')]
+    if not existing_portfolios:
+        existing_portfolios = ["MonPortefeuille"]
+        # Créer un portefeuille vide par défaut
+        pd.DataFrame(columns=['symbole', 'nom', 'classe_actif', 'montant', 'prix_achat', 'date_achat', 'frais']).to_csv(
+            f"{PORTFOLIO_DIR}/MonPortefeuille.csv", index=False
+        )
+    selected_portfolio = st.selectbox("Portefeuille courant", existing_portfolios, key="portfolio_selectbox")
+    st.markdown("---")
+    st.subheader("Créer un nouveau portefeuille")
+    new_portfolio_name = st.text_input("Nom du nouveau portefeuille", key="new_portfolio_name")
+    if st.button("Créer le portefeuille"):
+        if new_portfolio_name.strip() == "":
+            st.warning("Veuillez saisir un nom de portefeuille.")
+        elif new_portfolio_name in existing_portfolios:
+            st.warning("Ce portefeuille existe déjà.")
+        else:
+            pd.DataFrame(columns=['symbole', 'nom', 'classe_actif', 'montant', 'prix_achat', 'date_achat', 'frais']).to_csv(
+                f"{PORTFOLIO_DIR}/{new_portfolio_name}.csv", index=False
+            )
+            st.success(f"Portefeuille '{new_portfolio_name}' créé !")
+            st.rerun()
+
+# Chargement des données du portefeuille sélectionné
+df_portfolio = load_portfolio_data(selected_portfolio)
 
 # Sidebar pour ajouter des positions
 with st.sidebar:
     st.header("➕ Ajouter une position")
-    
     with st.form("add_position_form"):
         symbole = st.text_input("Symbole (ex: AAPL, BTC-USD)", key="symbole_input")
         nom = st.text_input("Nom de l'actif", key="nom_input")
@@ -112,11 +141,8 @@ with st.sidebar:
         prix_achat = st.number_input("Prix d'achat", min_value=0.0, step=0.01, key="prix_input")
         frais = st.number_input("Frais", min_value=0.0, step=0.01, key="frais_input")
         date_achat = st.date_input("Date d'achat", value=datetime.now().date(), key="date_input")
-        
         submitted = st.form_submit_button("Ajouter la position")
-        
         if submitted and symbole and nom and montant > 0 and prix_achat > 0:
-            # Vérifier si le symbole existe
             current_price = get_current_price(symbole)
             if current_price is not None:
                 new_position = pd.DataFrame({
@@ -128,15 +154,13 @@ with st.sidebar:
                     'date_achat': [pd.to_datetime(date_achat)],
                     'frais': [frais]
                 })
-                
                 df_portfolio = pd.concat([df_portfolio, new_position], ignore_index=True)
-                save_portfolio_data(df_portfolio)
+                save_portfolio_data(df_portfolio, selected_portfolio)
                 st.success(f"Position {symbole} ajoutée avec succès!")
                 st.rerun()
             else:
                 st.error(f"Symbole {symbole} non trouvé sur Yahoo Finance")
 
-    # Formulaire pour vendre une position (vente partielle)
     if not df_portfolio.empty:
         st.header("📉 Vendre une position")
         with st.form("sell_position_form"):
@@ -145,9 +169,7 @@ with st.sidebar:
                 options=df_portfolio['symbole'].unique(),
                 key="sell_symbole_select"
             )
-            # Filtrer les lignes correspondantes au symbole sélectionné
             filtered_positions = df_portfolio[df_portfolio['symbole'] == sell_symbole]
-            # Afficher les lignes avec index pour référence
             position_indices = filtered_positions.index.tolist()
             position_display = [f"{row['nom']} - Montant: {row['montant']}" for _, row in filtered_positions.iterrows()]
             selected_position_idx = st.selectbox(
@@ -182,7 +204,6 @@ with st.sidebar:
                 key="date_vente_input"
             )
             sell_submitted = st.form_submit_button("Vendre la position")
-            
             if sell_submitted:
                 if montant_vente <= 0:
                     st.error("Le montant à vendre doit être supérieur à 0.")
@@ -191,13 +212,7 @@ with st.sidebar:
                 elif prix_vente <= 0:
                     st.error("Le prix de vente doit être supérieur à 0.")
                 else:
-                    # Mettre à jour la ligne existante en réduisant le montant
                     df_portfolio.loc[selected_position_idx, 'montant'] -= montant_vente
-                    
-                    # Ajouter une ligne de vente avec montant vendu, prix de vente, frais, date de vente
-                    # On marque 'prix_achat' négatif pour indiquer une vente (ou on peut ajouter une colonne 'type' ?)
-                    # Pour conserver cohérence, on ajoute une ligne avec montant négatif, prix d'achat = prix_vente, frais = frais_vente, date_achat = date_vente
-                    # Nom, classe_actif restent les mêmes
                     vente_position = pd.DataFrame({
                         'symbole': [df_portfolio.loc[selected_position_idx, 'symbole']],
                         'nom': [df_portfolio.loc[selected_position_idx, 'nom']],
@@ -208,24 +223,17 @@ with st.sidebar:
                         'frais': [frais_vente]
                     })
                     df_portfolio = pd.concat([df_portfolio, vente_position], ignore_index=True)
-                    
-                    # Supprimer la position si le montant est devenu 0
                     if df_portfolio.loc[selected_position_idx, 'montant'] == 0:
                         df_portfolio = df_portfolio.drop(selected_position_idx).reset_index(drop=True)
-                    
-                    save_portfolio_data(df_portfolio)
-                    
-                    # Calcul du P&L pour la partie vendue
+                    save_portfolio_data(df_portfolio, selected_portfolio)
                     prix_achat_orig = df_portfolio.loc[selected_position_idx, 'prix_achat'] if selected_position_idx in df_portfolio.index else None
                     pnl_vente = montant_vente * (prix_vente - prix_achat_orig) - frais_vente if prix_achat_orig is not None else None
-                    
                     if pnl_vente is not None:
                         st.success(f"Vente de {montant_vente} {sell_symbole} effectuée avec succès! P&L partiel: {pnl_vente:.2f} €")
                     else:
                         st.success(f"Vente de {montant_vente} {sell_symbole} effectuée avec succès!")
                     st.rerun()
 
-    # Bouton pour supprimer une position
     if not df_portfolio.empty:
         st.header("🗑️ Supprimer une position")
         position_to_delete = st.selectbox(
@@ -233,16 +241,15 @@ with st.sidebar:
             options=df_portfolio.index,
             format_func=lambda x: f"{df_portfolio.loc[x, 'symbole']} - {df_portfolio.loc[x, 'nom']}"
         )
-        
         if st.button("Supprimer la position"):
             df_portfolio = df_portfolio.drop(position_to_delete).reset_index(drop=True)
-            save_portfolio_data(df_portfolio)
+            save_portfolio_data(df_portfolio, selected_portfolio)
             st.success("Position supprimée!")
             st.rerun()
 
 # Contenu principal
 if df_portfolio.empty:
-    st.info("Aucune position dans votre portfolio. Ajoutez votre première position via la barre latérale.")
+    st.info("Aucune position dans votre portefeuille. Ajoutez votre première position via la barre latérale.")
 else:
     # Récupération des prix actuels
     with st.spinner("Récupération des prix actuels..."):
@@ -250,7 +257,6 @@ else:
         for symbol in df_portfolio['symbole']:
             price = get_current_price(symbol)
             current_prices.append(price if price is not None else 0)
-        
         df_portfolio['prix_actuel'] = current_prices
     
     # Calcul des P&L prenant en compte les ventes partielles et les frais
@@ -406,5 +412,5 @@ if st.button("🔄 Actualiser les Prix", type="primary"):
 
 # Footer
 st.markdown("---")
-st.markdown("💡 **Astuce**: Les données sont automatiquement sauvegardées dans le fichier `portfolio_data.csv`")
+st.markdown(f"💡 **Astuce**: Les données sont automatiquement sauvegardées dans le dossier `{PORTFOLIO_DIR}`")
 st.markdown("🔄 **Mise à jour**: Les prix sont récupérés depuis Yahoo Finance à chaque actualisation")
