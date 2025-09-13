@@ -1,3 +1,7 @@
+from pypfopt.efficient_frontier import EfficientFrontier
+from pypfopt import risk_models
+from pypfopt import expected_returns
+import matplotlib.ticker as mtick
 from statsmodels.regression.rolling import RollingOLS
 import pandas_datareader.data as web
 import matplotlib.pyplot as plt
@@ -8,6 +12,7 @@ import datetime as dt
 import yfinance as yf
 import pandas_ta
 import warnings
+from sklearn.cluster import KMeans
 warnings.filterwarnings('ignore')
 
 sp500 = pd.read_html('https://en.wikipedia.org/wiki/List_of_S%26P_500_companies')[0]
@@ -126,7 +131,7 @@ data = data.drop('adj close', axis=1)
 
 data = data.dropna()
 
-from sklearn.cluster import KMeans
+
 
 if 'cluster' in data.columns:
     data = data.drop('cluster', axis=1)
@@ -187,9 +192,7 @@ for d in dates:
     
     fixed_dates[d.strftime('%Y-%m-%d')] = filtered_df.xs(d, level=0).index.tolist()
 
-from pypfopt.efficient_frontier import EfficientFrontier
-from pypfopt import risk_models
-from pypfopt import expected_returns
+
 
 def optimize_weights(prices, lower_bound=0):
     
@@ -279,7 +282,7 @@ portfolio_df = portfolio_df.merge(spy_ret,
                                   left_index=True,
                                   right_index=True)
 
-import matplotlib.ticker as mtick
+
 
 plt.style.use('ggplot')
 
