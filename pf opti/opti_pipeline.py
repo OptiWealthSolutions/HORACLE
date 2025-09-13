@@ -16,7 +16,7 @@ from scorer import get_fundamental_data, calculate_fundamental_score
 # 4. Ajuster HRP weights selon ML
 # 5. Re-normaliser pour garder Σ(weights)=1
 tickers = ["AAPL", "MSFT", "AMZN", "TSLA", "META"]
-fundamentals = get_fundamental_data(tickers)
+fundamentals = get_fundamental_data(tickers, period="10y")
 og_df = calculate_fundamental_score(fundamentals)
 features_df = og_df.drop('Close', axis=1)
 
@@ -46,7 +46,7 @@ def labelling(features_df):
 class MLScorer():
     def __init__(self, tickers):
         self.tickers = tickers
-        self.fundamentals = get_fundamental_data(tickers)
+        self.fundamentals = get_fundamental_data(tickers, period="10y")
         self.scores = calculate_fundamental_score(self.fundamentals)
 
 

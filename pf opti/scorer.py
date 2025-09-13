@@ -5,20 +5,20 @@ import numpy as np
 import pandas as pd
 
 # Fonction pour récupérer des données fondamentales à partir de yfinance
-def get_fundamental_data(tickers):
+def get_fundamental_data(tickers,period="10y"):
     fundamentals = {}
     for ticker in tickers:
         stock = yf.Ticker(ticker)
         try:
             pe_ratio = stock.info.get('trailingPE', 0)  # P/E ratio
             dividend_yield = stock.info.get('dividendYield', 0)  # Dividend yield
-            roe = stock.info.get('returnOnEquity', 0)  # ROE
+            roe = stock.info.get('returnOnEquity', 'NaN')  # ROE
             eps_growth = stock.info.get('earningsGrowth', 0)  # Growth in EPS
             eps = stock.info.get('trailingEps', 0)  # Trailing EPS
             pb_ratio = stock.info.get('priceToBook', 0)  # P/B ratio
             book_value_per_share = stock.info.get('bookValue', 0)  # Book value per share
             min_price_value = np.sqrt(22.5*eps*book_value_per_share) 
-            Close = stock.history(interval="1d",period="10y")["Close"].iloc[-1]
+            Close = stock.history(period=period)["Close"].iloc[-1]
             fundamentals[ticker] = {
                 'PE': pe_ratio,
                 'Dividend Yield': dividend_yield,
@@ -61,8 +61,26 @@ def calculate_fundamental_score(fundamentals):
     df_score['min_price_value'] = [fundamentals[ticker]['Min price value'] for ticker in df_score.index]
     df_score['Close'] = [fundamentals[ticker]['Close'] for ticker in df_score.index]
     df_score['pct_undervaluation'] = (df_score['min_price_value'] - df_score['Close']) / df_score['Close'] * 100
-    print(df_score)
-    return df_score
+    
+    #all the content
+    print("\n === SCORES and DATAFRAME CONTENT ===")
+    print(df_score.drop('Close', axis=1))
+
+    #best score
+    df_best_score = df_score['Score'].sort_values(ascending=False).head()
+    print("\n === BEST SCORES ===")
+    print(df_best_score)
+    
+    #underevaluated
+    df_underevaluated = df_score[df_score['pct_undervaluation'] >= -10]
+    print("\n === UNDER EVALUATED STOCKS ===")
+    print(df_underevaluated.drop('Close', axis=1))
+
+    #overevaluated
+    df_overevaluated = df_score[df_score['pct_undervaluation'] <= -30].head()
+    print("\n === OVER EVALUATED STOCKS ===")
+    print(df_overevaluated.drop('Close', axis=1))
+    return df_underevaluated, df_overevaluated
 
 # Mise à jour des pondérations en fonction de l'analyse fondamentale
 def update_weights_with_fundamentals(tickers):
