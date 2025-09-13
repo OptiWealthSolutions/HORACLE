@@ -11,7 +11,7 @@ import os
 # Configuration de la page
 st.set_page_config(
     page_title="OWS DashBoard",
-    page_icon="logo_final.jpeg",
+    page_icon="logo_final.jpg",
     layout="wide",
     initial_sidebar_state="expanded"
 )
