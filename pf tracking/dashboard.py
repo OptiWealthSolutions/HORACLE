@@ -7,11 +7,14 @@ from plotly.subplots import make_subplots
 import numpy as np
 from datetime import datetime, timedelta
 import os
+from PIL import Image
 
+# Chargement du logo avec PIL
+logo = Image.open("logo_final.jpg")
 # Configuration de la page
 st.set_page_config(
     page_title="OWS DashBoard",
-    page_icon="logo_final.jpg",
+    page_icon=logo,
     layout="wide",
     initial_sidebar_state="expanded"
 )
@@ -102,7 +105,7 @@ st.title("OWS DashBoard")
 
 # --- Gestion multi-portefeuilles ---
 with st.sidebar:
-    st.image("logo_final.jpg", width=150)
+    st.sidebar.image(logo, width=150)
     st.header("🗂️ Sélection du portefeuille")
     # Liste des portefeuilles existants (fichiers .csv dans le dossier)
     existing_portfolios = [f[:-4] for f in os.listdir(PORTFOLIO_DIR) if f.endswith('.csv')]
@@ -223,11 +226,19 @@ with st.sidebar:
                     # Prix d'achat de la ligne sélectionnée
                     prix_achat_orig = df_portfolio.loc[selected_position_idx, 'prix_achat']
 
-                    # Décrémenter le montant de la position ouverte
-                    nouveau_montant = df_portfolio.loc[selected_position_idx, 'montant'] - montant_vente
-                    df_portfolio.loc[selected_position_idx, 'montant'] = nouveau_montant
+                    # Calcul du PnL réalisé sur la vente
+                    pnl_vente = montant_vente * (prix_vente_effectif - prix_achat_orig) - frais_vente
 
-                    # Ajouter une ligne de vente dans le portefeuille (montant négatif)
+                    # Si vente de 100%, supprimer la ligne correspondante
+                    if abs(montant_vente - max_montant) < 1e-8:
+                        # Vente totale
+                        df_portfolio = df_portfolio.drop(selected_position_idx).reset_index(drop=True)
+                    else:
+                        # Vente partielle, décrémenter le montant
+                        nouveau_montant = df_portfolio.loc[selected_position_idx, 'montant'] - montant_vente
+                        df_portfolio.loc[selected_position_idx, 'montant'] = nouveau_montant
+
+                    # Ajouter une ligne de vente dans le portefeuille (montant négatif, prix de vente, frais)
                     vente_position = pd.DataFrame({
                         'symbole': [df_portfolio.loc[selected_position_idx, 'symbole']],
                         'nom': [df_portfolio.loc[selected_position_idx, 'nom']],
@@ -239,17 +250,7 @@ with st.sidebar:
                     })
                     df_portfolio = pd.concat([df_portfolio, vente_position], ignore_index=True)
 
-                    # Si vente de 100%, supprimer la ligne correspondante
-                    if abs(nouveau_montant) < 1e-8:  # tolérance flottante
-                        df_portfolio = df_portfolio.drop(selected_position_idx).reset_index(drop=True)
-
                     save_portfolio_data(df_portfolio, selected_portfolio)
-
-                    # Calcul du PnL réalisé sur la vente
-                    pnl_vente = montant_vente * (prix_vente_effectif - prix_achat_orig) - frais_vente
-
-                    # Mettre à jour df_ventes pour refléter le PnL réalisé (pour affichage dans les metrics)
-                    # (Rien à faire ici car il sera recalculé plus bas à partir de df_portfolio)
 
                     st.success(f"Vente de {montant_vente} {sell_symbole} effectuée avec succès! P&L réalisé: {pnl_vente:.2f} €")
                     st.rerun()
@@ -386,11 +387,15 @@ else:
     
     with col2:
         # P&L par position
-        fig_bar = px.bar(df_display, x='symbole', y='pnl_absolu',
-                        color='pnl_absolu', color_continuous_scale='RdYlGn',
-                        title="P&L par Position")
-        fig_bar.update_layout(showlegend=False)
-        st.plotly_chart(fig_bar, use_container_width=True)
+        # S'assurer que df_display contient bien la colonne 'pnl_absolu'
+        if 'pnl_absolu' in df_display.columns:
+            fig_bar = px.bar(df_display, x='symbole', y='pnl_absolu',
+                            color='pnl_absolu', color_continuous_scale='RdYlGn',
+                            title="P&L par Position")
+            fig_bar.update_layout(showlegend=False)
+            st.plotly_chart(fig_bar, use_container_width=True)
+        else:
+            st.warning("Impossible d'afficher le P&L par position (données manquantes).")
     
     # Graphique d'évolution historique pour une position sélectionnée
     st.header("📈 Évolution Historique")
