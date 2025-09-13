@@ -102,7 +102,7 @@ st.title("OWS DashBoard")
 
 # --- Gestion multi-portefeuilles ---
 with st.sidebar:
-    st.image("logo_final.jpeg", width=150)
+    st.image("logo_final.jpg", width=150)
     st.header("🗂️ Sélection du portefeuille")
     # Liste des portefeuilles existants (fichiers .csv dans le dossier)
     existing_portfolios = [f[:-4] for f in os.listdir(PORTFOLIO_DIR) if f.endswith('.csv')]
