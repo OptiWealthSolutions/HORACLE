@@ -98,10 +98,11 @@ def calculate_performance_metrics(df_portfolio):
         'nb_positions': len(df_portfolio)
     }
 
-st.title("💰 Dashboard d'Investissement")
+st.title("OWS DashBoard")
 
 # --- Gestion multi-portefeuilles ---
 with st.sidebar:
+    st.image("logo_final.jpeg", width=150)
     st.header("🗂️ Sélection du portefeuille")
     # Liste des portefeuilles existants (fichiers .csv dans le dossier)
     existing_portfolios = [f[:-4] for f in os.listdir(PORTFOLIO_DIR) if f.endswith('.csv')]
@@ -209,29 +210,48 @@ with st.sidebar:
                     st.error("Le montant à vendre doit être supérieur à 0.")
                 elif montant_vente > max_montant:
                     st.error("Le montant à vendre ne peut pas dépasser le montant détenu.")
-                elif prix_vente <= 0:
-                    st.error("Le prix de vente doit être supérieur à 0.")
                 else:
-                    df_portfolio.loc[selected_position_idx, 'montant'] -= montant_vente
+                    # Si prix_vente = 0, utiliser le prix actuel
+                    if prix_vente == 0.0:
+                        prix_vente_effectif = get_current_price(df_portfolio.loc[selected_position_idx, 'symbole'])
+                        if prix_vente_effectif is None or prix_vente_effectif == 0.0:
+                            st.error("Impossible de récupérer le prix actuel pour effectuer la vente.")
+                            st.stop()
+                    else:
+                        prix_vente_effectif = prix_vente
+
+                    # Prix d'achat de la ligne sélectionnée
+                    prix_achat_orig = df_portfolio.loc[selected_position_idx, 'prix_achat']
+
+                    # Décrémenter le montant de la position ouverte
+                    nouveau_montant = df_portfolio.loc[selected_position_idx, 'montant'] - montant_vente
+                    df_portfolio.loc[selected_position_idx, 'montant'] = nouveau_montant
+
+                    # Ajouter une ligne de vente dans le portefeuille (montant négatif)
                     vente_position = pd.DataFrame({
                         'symbole': [df_portfolio.loc[selected_position_idx, 'symbole']],
                         'nom': [df_portfolio.loc[selected_position_idx, 'nom']],
                         'classe_actif': [df_portfolio.loc[selected_position_idx, 'classe_actif']],
                         'montant': [-montant_vente],
-                        'prix_achat': [prix_vente],
+                        'prix_achat': [prix_vente_effectif],
                         'date_achat': [pd.to_datetime(date_vente)],
                         'frais': [frais_vente]
                     })
                     df_portfolio = pd.concat([df_portfolio, vente_position], ignore_index=True)
-                    if df_portfolio.loc[selected_position_idx, 'montant'] == 0:
+
+                    # Si vente de 100%, supprimer la ligne correspondante
+                    if abs(nouveau_montant) < 1e-8:  # tolérance flottante
                         df_portfolio = df_portfolio.drop(selected_position_idx).reset_index(drop=True)
+
                     save_portfolio_data(df_portfolio, selected_portfolio)
-                    prix_achat_orig = df_portfolio.loc[selected_position_idx, 'prix_achat'] if selected_position_idx in df_portfolio.index else None
-                    pnl_vente = montant_vente * (prix_vente - prix_achat_orig) - frais_vente if prix_achat_orig is not None else None
-                    if pnl_vente is not None:
-                        st.success(f"Vente de {montant_vente} {sell_symbole} effectuée avec succès! P&L partiel: {pnl_vente:.2f} €")
-                    else:
-                        st.success(f"Vente de {montant_vente} {sell_symbole} effectuée avec succès!")
+
+                    # Calcul du PnL réalisé sur la vente
+                    pnl_vente = montant_vente * (prix_vente_effectif - prix_achat_orig) - frais_vente
+
+                    # Mettre à jour df_ventes pour refléter le PnL réalisé (pour affichage dans les metrics)
+                    # (Rien à faire ici car il sera recalculé plus bas à partir de df_portfolio)
+
+                    st.success(f"Vente de {montant_vente} {sell_symbole} effectuée avec succès! P&L réalisé: {pnl_vente:.2f} €")
                     st.rerun()
 
     if not df_portfolio.empty:
