@@ -177,6 +177,9 @@ with st.sidebar:
             else:
                 st.error(f"Symbole {symbole} non trouvé sur Yahoo Finance")
 
+    # Gestion du P&L réalisé cumulé (persisté dans session_state)
+    if "pnl_realise_total" not in st.session_state:
+        st.session_state["pnl_realise_total"] = 0.0
     if not df_portfolio.empty:
         st.header("📉 Vendre une position")
         with st.form("sell_position_form"):
@@ -235,35 +238,24 @@ with st.sidebar:
                     else:
                         prix_vente_effectif = prix_vente
 
-                    # Prix d'achat de la ligne sélectionnée
                     prix_achat_orig = df_portfolio.loc[selected_position_idx, 'prix_achat']
 
                     # Calcul du PnL réalisé sur la vente
                     pnl_vente = montant_vente * (prix_vente_effectif - prix_achat_orig) - frais_vente
 
-                    # Si vente de 100%, supprimer la ligne correspondante
+                    # Mise à jour cumulative du P&L réalisé
+                    st.session_state["pnl_realise_total"] += pnl_vente
+
+                    # Si vente totale, suppression de la ligne
                     if abs(montant_vente - max_montant) < 1e-8:
-                        # Vente totale
                         df_portfolio = df_portfolio.drop(selected_position_idx).reset_index(drop=True)
                     else:
                         # Vente partielle, décrémenter le montant
                         nouveau_montant = df_portfolio.loc[selected_position_idx, 'montant'] - montant_vente
                         df_portfolio.loc[selected_position_idx, 'montant'] = nouveau_montant
 
-                    # Ajouter une ligne de vente dans le portefeuille (montant négatif, prix de vente, frais)
-                    vente_position = pd.DataFrame({
-                        'symbole': [df_portfolio.loc[selected_position_idx, 'symbole']],
-                        'nom': [df_portfolio.loc[selected_position_idx, 'nom']],
-                        'classe_actif': [df_portfolio.loc[selected_position_idx, 'classe_actif']],
-                        'montant': [-montant_vente],
-                        'prix_achat': [prix_vente_effectif],
-                        'date_achat': [pd.to_datetime(date_vente)],
-                        'frais': [frais_vente]
-                    })
-                    df_portfolio = pd.concat([df_portfolio, vente_position], ignore_index=True)
-
+                    # NE PLUS ajouter de ligne de vente avec montant négatif
                     save_portfolio_data(df_portfolio, selected_portfolio)
-
                     st.success(f"Vente de {montant_vente} {sell_symbole} effectuée avec succès! P&L réalisé: {pnl_vente:.2f} €")
                     st.rerun()
 
@@ -298,9 +290,8 @@ else:
 # CALCUL DES METRICS PORTFOLIO
     # -------------------------
 
-    # Séparer positions ouvertes et ventes
+    # Séparer positions ouvertes
     df_ouvertes = df_portfolio[df_portfolio['montant'] > 0].copy()
-    df_ventes = df_portfolio[df_portfolio['montant'] < 0].copy()
 
     # Pour les positions ouvertes : P&L flottant
     df_ouvertes['valeur_achat'] = df_ouvertes['montant'] + df_ouvertes['frais']
@@ -312,22 +303,12 @@ else:
         0.0
     )
 
-    # Pour les ventes : P&L déjà réalisé
-    # Prix actuel = prix de vente pour la ligne vente
-    df_ventes['valeur_achat'] = 0.0  # non pertinent pour ventes
-    df_ventes['valeur_actuelle'] = 0.0  # non pertinent
-    df_ventes['pnl_absolu'] = -df_ventes['montant'] * (df_ventes['prix_actuel'] - df_ventes['prix_achat']) - df_ventes['frais']
-    df_ventes['pnl_pct'] = np.where(
-        df_ventes['prix_achat'] != 0,
-        (df_ventes['pnl_absolu'] / (df_ventes['prix_achat'] * -df_ventes['montant'] + df_ventes['frais']) * 100).round(2),
-        0.0
-    )
-
     # Metrics globales
     capital_investi = df_ouvertes['valeur_achat'].sum()
     valeur_actuelle = df_ouvertes['valeur_actuelle'].sum()
     pnl_flottant = df_ouvertes['pnl_absolu'].sum()
-    pnl_realise = df_ventes['pnl_absolu'].sum()
+    # Utiliser le P&L réalisé cumulé en session_state
+    pnl_realise = st.session_state.get("pnl_realise_total", 0.0)
     nb_positions = len(df_ouvertes)
 
     # -------------------------
@@ -355,7 +336,7 @@ else:
     # -------------------------
     # PREPARATION DU TABLEAU COMPLET POUR AFFICHAGE
     # -------------------------
-    df_display = pd.concat([df_ouvertes, df_ventes], ignore_index=True)
+    df_display = df_ouvertes.copy()
     df_display['prix_achat'] = df_display['prix_achat'].map('{:.2f} €'.format)
     df_display['prix_actuel'] = df_display['prix_actuel'].map('{:.2f} €'.format)
     df_display['valeur_achat'] = df_display['valeur_achat'].map('{:,.2f} €'.format)
@@ -398,8 +379,7 @@ else:
         st.plotly_chart(fig_pie, use_container_width=True)
     
     with col2:
-        # P&L par position
-        # S'assurer que df_display contient bien la colonne 'pnl_absolu'
+        # P&L par position (uniquement sur positions ouvertes)
         if 'pnl_absolu' in df_display.columns:
             fig_bar = px.bar(df_display, x='symbole', y='pnl_absolu',
                             color='pnl_absolu', color_continuous_scale='RdYlGn',
