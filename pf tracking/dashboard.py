@@ -9,15 +9,26 @@ from datetime import datetime, timedelta
 import os
 from PIL import Image
 
-# Chargement du logo avec PIL
-logo = Image.open("/logo_final.jpg")
+# Chargement du logo avec PIL (chemin relatif + gestion d'erreur)
+try:
+    logo = Image.open("logo_final.jpg")
+except Exception:
+    logo = None
+
 # Configuration de la page
-st.set_page_config(
-    page_title="OWS DashBoard",
-    page_icon=logo,
-    layout="wide",
-    initial_sidebar_state="expanded"
-)
+if logo is not None:
+    st.set_page_config(
+        page_title="OWS DashBoard",
+        page_icon=logo,
+        layout="wide",
+        initial_sidebar_state="expanded"
+    )
+else:
+    st.set_page_config(
+        page_title="OWS DashBoard",
+        layout="wide",
+        initial_sidebar_state="expanded"
+    )
 
 PORTFOLIO_DIR = "portfolios"
 # Créer le dossier s'il n'existe pas
@@ -105,7 +116,8 @@ st.title("OWS DashBoard")
 
 # --- Gestion multi-portefeuilles ---
 with st.sidebar:
-    st.sidebar.image(logo, width=150)
+    if logo is not None:
+        st.sidebar.image(logo, width=150)
     st.header("🗂️ Sélection du portefeuille")
     # Liste des portefeuilles existants (fichiers .csv dans le dossier)
     existing_portfolios = [f[:-4] for f in os.listdir(PORTFOLIO_DIR) if f.endswith('.csv')]
