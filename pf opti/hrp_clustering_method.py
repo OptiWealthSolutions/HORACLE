@@ -267,11 +267,9 @@ def main():
     "CS.PA",       # AXA
     "RHM.DE",      # Rheinmetall
     "AM.PA",       # Dassault Aviation (ou Airbus si c'est AM : vérifier ton intention)
-    "LR.PA",       # Legrand
     "CDI.PA",      # Christian Dior
     "HO.PA",       # Thales (HO sur Euronext Paris)
     "CAP.PA",      # Capgemini
-    "BYG.L",       # Big Yellow Group (UK, ticker BYG)
     
     # US stocks
     "AAPL",        # Apple
@@ -281,11 +279,9 @@ def main():
     "MSFT",        # Microsoft
     "VOO",         # Vanguard S&P 500 ETF (A500 de ton screenshot)
     "LMT",         # Lockheed Martin
-    "KO" ,        # Coca-Cola
-    "PLTR"  ,
-    "TTE.PA"     #total
-     # palantir
-       # Lockheed Martin   # Platinum Futures
+    "KO" ,         # Coca-Cola
+    "PLTR"  ,      #Palantir    
+    "TTE.PA"       #Total
     ]
     
     print("Initializing Hierarchical Risk Parity Optimizer...")
